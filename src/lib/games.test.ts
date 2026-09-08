@@ -22,7 +22,6 @@ async function seedGames(db: Database, count: number): Promise<void> {
         .values({ name: 'Pub One', description: 'pub' })
         .returning({ id: publishers.id });
 
-    // Insert titles in reverse-alphabetical order to prove ordering is applied.
     for (let i = count; i >= 1; i--) {
         await db.insert(games).values({
             title: `Game ${String(i).padStart(2, '0')}`,
@@ -32,6 +31,69 @@ async function seedGames(db: Database, count: number): Promise<void> {
             publisherId: publisher.id,
         });
     }
+}
+
+async function seedFilteredGames(db: Database): Promise<{
+    strategyId: number;
+    puzzleId: number;
+    codeforgeId: number;
+    devmastersId: number;
+}> {
+    const [strategy] = await db
+        .insert(categories)
+        .values({ name: 'Strategy', description: 'cat' })
+        .returning({ id: categories.id });
+    const [puzzle] = await db
+        .insert(categories)
+        .values({ name: 'Puzzle', description: 'cat' })
+        .returning({ id: categories.id });
+
+    const [codeforge] = await db
+        .insert(publishers)
+        .values({ name: 'CodeForge', description: 'pub' })
+        .returning({ id: publishers.id });
+    const [devmasters] = await db
+        .insert(publishers)
+        .values({ name: 'DevMasters', description: 'pub' })
+        .returning({ id: publishers.id });
+
+    await db.insert(games).values([
+        {
+            title: 'Alpha Strategy',
+            description: 'Strategy game',
+            starRating: 4.2,
+            categoryId: strategy.id,
+            publisherId: codeforge.id,
+        },
+        {
+            title: 'Bravo Strategy',
+            description: 'Another strategy game',
+            starRating: 4.2,
+            categoryId: strategy.id,
+            publisherId: devmasters.id,
+        },
+        {
+            title: 'Charlie Puzzle',
+            description: 'Puzzle game',
+            starRating: 4.8,
+            categoryId: puzzle.id,
+            publisherId: codeforge.id,
+        },
+        {
+            title: 'Delta Puzzle',
+            description: 'Another puzzle game',
+            starRating: 3.9,
+            categoryId: puzzle.id,
+            publisherId: devmasters.id,
+        },
+    ]);
+
+    return {
+        strategyId: strategy.id,
+        puzzleId: puzzle.id,
+        codeforgeId: codeforge.id,
+        devmastersId: devmasters.id,
+    };
 }
 
 describe('games data-access helpers', () => {
@@ -196,8 +258,6 @@ describe('games data-access helpers', () => {
             .insert(categories)
             .values({ name: 'Strategy', description: 'cat' })
             .returning({ id: categories.id });
-        // Insert publishers out of alphabetical order to prove getAllPublisherIds sorts by
-        // name rather than by id/insertion order.
         const [zenith] = await db
             .insert(publishers)
             .values({ name: 'Zenith Games', description: 'zenith pub' })
@@ -211,8 +271,6 @@ describe('games data-access helpers', () => {
             .values({ name: 'Charlie Games', description: '   ' })
             .returning({ id: publishers.id });
 
-        // Insert each publisher's games in reverse-alphabetical order to prove per-publisher
-        // ordering is applied independently of insertion order.
         await db.insert(games).values({
             title: 'Zeta Two',
             description: 'Zenith game two',
@@ -320,5 +378,67 @@ describe('games data-access helpers', () => {
     it('returns an empty list of games for a non-existent publisher', async () => {
         await seedGames(db, 2);
         expect(await getGamesByPublisherId(db, 99999)).toEqual([]);
+    });
+
+    it('filters games by category when a category id is supplied', async () => {
+        const { strategyId } = await seedFilteredGames(db);
+        const filtered = await getAllGames(db, { categoryIds: [strategyId] });
+
+        expect(filtered.map((game) => game.title)).toEqual(['Alpha Strategy', 'Bravo Strategy']);
+    });
+
+    it('filters games by publisher when a publisher id is supplied', async () => {
+        const { codeforgeId } = await seedFilteredGames(db);
+        const filtered = await getAllGames(db, { publisherIds: [codeforgeId] });
+
+        expect(filtered.map((game) => game.title)).toEqual(['Alpha Strategy', 'Charlie Puzzle']);
+    });
+
+    it('combines multiple categories with publisher filters using OR within categories and AND across groups', async () => {
+        const { strategyId, puzzleId, codeforgeId } = await seedFilteredGames(db);
+        const filtered = await getAllGames(db, {
+            categoryIds: [strategyId, puzzleId],
+            publisherIds: [codeforgeId],
+        });
+
+        expect(filtered.map((game) => game.title)).toEqual(['Alpha Strategy', 'Charlie Puzzle']);
+    });
+
+    it('returns an empty list when no game matches the selected filters', async () => {
+        const { strategyId } = await seedFilteredGames(db);
+        const filtered = await getAllGames(db, {
+            categoryIds: [strategyId],
+            publisherIds: [9999],
+        });
+
+        expect(filtered).toEqual([]);
+    });
+
+    it('ignores invalid filter ids while keeping null-related metadata safe', async () => {
+        const [category] = await db
+            .insert(categories)
+            .values({ name: 'Puzzle', description: null })
+            .returning({ id: categories.id });
+        const [publisher] = await db
+            .insert(publishers)
+            .values({ name: 'Skyforge', description: '   ' })
+            .returning({ id: publishers.id });
+
+        await db.insert(games).values({
+            title: 'Null-safe Puzzle',
+            description: 'Handles missing relations cleanly',
+            starRating: 4.2,
+            categoryId: category.id,
+            publisherId: publisher.id,
+        });
+
+        const filtered = await getAllGames(db, {
+            categoryIds: [0, category.id, Number.NaN, -1],
+            publisherIds: [0, publisher.id, 999],
+        });
+
+        expect(filtered.map((game) => game.title)).toEqual(['Null-safe Puzzle']);
+        expect(filtered[0].category).toEqual({ id: category.id, name: 'Puzzle', description: null });
+        expect(filtered[0].publisher).toEqual({ id: publisher.id, name: 'Skyforge', description: null });
     });
 });

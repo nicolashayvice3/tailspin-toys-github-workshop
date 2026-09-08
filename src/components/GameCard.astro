@@ -5,9 +5,11 @@ import ArrowRight from '../assets/icons/arrow-right.svg';
 
 interface Props {
     game: Game;
+    categoryId?: number | null;
+    publisherId?: number | null;
 }
 
-const { game } = Astro.props;
+const { game, categoryId, publisherId } = Astro.props;
 ---
 
 <a
@@ -16,6 +18,8 @@ const { game } = Astro.props;
     data-testid="game-card"
     data-game-id={game.id}
     data-game-title={game.title}
+    data-category-id={categoryId ?? ''}
+    data-publisher-id={publisherId ?? ''}
 >
     <div class="p-6 relative">
         <div class="absolute inset-0 bg-gradient-to-r from-blue-600/10 to-purple-600/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>

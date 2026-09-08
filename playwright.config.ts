@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const port = Number(process.env.PLAYWRIGHT_PORT ?? 4321);
+const port = Number(process.env.PLAYWRIGHT_PORT ?? 4357);
 
 /**
  * Read environment variables from file.

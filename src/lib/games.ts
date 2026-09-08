@@ -1,7 +1,12 @@
-import { asc, avg, count, eq } from 'drizzle-orm';
+import { asc, avg, count, eq, inArray, and } from 'drizzle-orm';
 import type { Database } from './db';
 import { games, categories, publishers } from '../../db/schema';
 import type { Game, Publisher } from '../types/game';
+
+export interface GameFilters {
+    categoryIds?: number[];
+    publisherIds?: number[];
+}
 
 const gameSelection = {
     id: games.id,
@@ -32,6 +37,23 @@ type GameSelectionRow = {
 function normalizeDescription(description: string | null): string | null {
     const trimmedDescription = description?.trim();
     return trimmedDescription || null;
+}
+
+function normalizeFilterIds(ids: number[] | null | undefined): number[] {
+    if (!ids || ids.length === 0) {
+        return [];
+    }
+
+    const uniqueIds = new Set<number>();
+    for (const id of ids) {
+        const normalized = Number(id);
+        if (!Number.isInteger(normalized) || normalized <= 0) {
+            continue;
+        }
+        uniqueIds.add(normalized);
+    }
+
+    return [...uniqueIds];
 }
 
 export interface CatalogSummary {
@@ -73,13 +95,50 @@ function baseGamesQuery(db: Database) {
         .leftJoin(publishers, eq(games.publisherId, publishers.id));
 }
 
+export async function getAllCategories(db: Database): Promise<Array<{ id: number; name: string }>> {
+    return db
+        .select({ id: categories.id, name: categories.name })
+        .from(categories)
+        .orderBy(asc(categories.name));
+}
+
+export async function getAllPublishers(db: Database): Promise<Array<{ id: number; name: string }>> {
+    return db
+        .select({ id: publishers.id, name: publishers.name })
+        .from(publishers)
+        .orderBy(asc(publishers.name));
+}
+
 /**
- * Returns all games with their related category and publisher metadata sorted by title.
+ * Returns all games sorted by title, with optional category and publisher filters.
+ * Categories are combined with OR semantics and the final category/publisher filter set is ANDed together.
  * @param db - Database connection used for the query.
- * @returns Ordered game records with nullable related descriptions normalized to null.
+ * @param filters - Optional filter IDs for category and publisher selection.
+ * @returns Games matching the requested filters, ordered alphabetically by title.
  */
-export async function getAllGames(db: Database): Promise<Game[]> {
-    const rows = await baseGamesQuery(db).orderBy(asc(games.title));
+export async function getAllGames(db: Database, filters: GameFilters = {}): Promise<Game[]> {
+    const categoryIds = normalizeFilterIds(filters.categoryIds);
+    const publisherIds = normalizeFilterIds(filters.publisherIds);
+    const baseQuery = baseGamesQuery(db);
+
+    if (categoryIds.length > 0 && publisherIds.length > 0) {
+        const rows = await baseQuery
+            .where(and(inArray(games.categoryId, categoryIds), inArray(games.publisherId, publisherIds)))
+            .orderBy(asc(games.title));
+        return rows.map(mapGame);
+    }
+
+    if (categoryIds.length > 0) {
+        const rows = await baseQuery.where(inArray(games.categoryId, categoryIds)).orderBy(asc(games.title));
+        return rows.map(mapGame);
+    }
+
+    if (publisherIds.length > 0) {
+        const rows = await baseQuery.where(inArray(games.publisherId, publisherIds)).orderBy(asc(games.title));
+        return rows.map(mapGame);
+    }
+
+    const rows = await baseQuery.orderBy(asc(games.title));
     return rows.map(mapGame);
 }
 
