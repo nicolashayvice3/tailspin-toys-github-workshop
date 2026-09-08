@@ -17,6 +17,7 @@ const { game } = Astro.props;
     data-testid="game-card"
     data-game-id={game.id}
     data-game-title={game.title}
+    data-game-rating={game.starRating ?? ''}
     data-category-id={game.category?.id ?? ''}
     data-publisher-id={game.publisher?.id ?? ''}
 >

@@ -127,6 +127,19 @@ const catalogSummary = await getCatalogSummary(getDatabase());
         </div>
 
         <div class="flex flex-wrap items-center gap-3">
+          <div class="flex items-center gap-3">
+            <label for="game-sort" class="text-sm font-medium text-slate-200">Sort by</label>
+            <select
+              id="game-sort"
+              name="sort"
+              data-testid="game-sort"
+              class="rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="title-asc">Title: A–Z</option>
+              <option value="title-desc">Title: Z–A</option>
+              <option value="rating-desc">Star rating (highest first)</option>
+            </select>
+          </div>
           <button
             type="button"
             class="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-medium text-slate-100 transition-colors duration-200 hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-900"
@@ -164,6 +177,7 @@ const catalogSummary = await getCatalogSummary(getDatabase());
 
 <script>
   import { titleMatchesSearch } from '../lib/title-search';
+  import { sortGames, type GameSortOption } from '../lib/game-sort';
 
   const searchForm = document.querySelector<HTMLFormElement>('[data-testid="game-search-form"]');
   const searchInput = document.querySelector<HTMLInputElement>('[data-testid="game-search-input"]');
@@ -176,6 +190,32 @@ const catalogSummary = await getCatalogSummary(getDatabase());
   const emptyState = document.querySelector<HTMLElement>('[data-testid="filter-empty-state"]');
   const resultsSummary = document.querySelector<HTMLElement>('[data-testid="results-summary"]');
   const gameCards = Array.from(document.querySelectorAll<HTMLElement>('[data-testid="game-card"]'));
+  const sortSelect = document.querySelector<HTMLSelectElement>('[data-testid="game-sort"]');
+
+  function getSortOption(): GameSortOption {
+    const value = sortSelect?.value;
+    return value === 'title-desc' || value === 'rating-desc' ? value : 'title-asc';
+  }
+
+  function sortCards(): void {
+    if (!gamesGrid) {
+      return;
+    }
+
+    const sortedCards = sortGames(
+      gameCards.map((card) => ({
+        id: Number(card.getAttribute('data-game-id')),
+        title: card.getAttribute('data-game-title') ?? '',
+        starRating: card.getAttribute('data-game-rating')
+          ? Number(card.getAttribute('data-game-rating'))
+          : null,
+        card,
+      })),
+      getSortOption(),
+    );
+
+    sortedCards.forEach(({ card }) => gamesGrid.append(card));
+  }
 
   function getSelectedCategoryIds(): number[] {
     return categoryInputs.filter((input) => input.checked).map((input) => Number(input.value));
@@ -190,6 +230,7 @@ const catalogSummary = await getCatalogSummary(getDatabase());
   }
 
   function applyFilters() {
+    sortCards();
     const selectedCategoryIds = getSelectedCategoryIds();
     const selectedPublisherIds = getSelectedPublisherIds();
     const query = searchInput?.value ?? '';
@@ -232,6 +273,7 @@ const catalogSummary = await getCatalogSummary(getDatabase());
   categoryInputs.forEach((input) => input.addEventListener('change', applyFilters));
 
   searchInput?.addEventListener('input', applyFilters);
+  sortSelect?.addEventListener('change', applyFilters);
 
   searchForm?.addEventListener('submit', (event) => {
     event.preventDefault();

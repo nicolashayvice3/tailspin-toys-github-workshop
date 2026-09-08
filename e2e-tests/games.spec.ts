@@ -24,6 +24,65 @@ test.describe('Game Listing and Navigation', () => {
     });
   });
 
+  test('should reorder visible cards for every sort mode while filters remain active', async ({ page }) => {
+    await page.goto('/');
+    const sortSelect = page.getByTestId('game-sort');
+    const visibleCards = page.locator('[data-testid="game-card"]:not([hidden])');
+
+    const readVisibleGames = async () => page.locator('[data-testid="game-card"]').evaluateAll((cards) =>
+      cards
+        .filter((card) => !card.hasAttribute('hidden'))
+        .map((card) => ({
+          id: Number(card.getAttribute('data-game-id')),
+          title: card.getAttribute('data-game-title') ?? '',
+          rating: card.getAttribute('data-game-rating') === '' ? null : Number(card.getAttribute('data-game-rating')),
+        })),
+    );
+
+    const titleComparator = new Intl.Collator('en', { sensitivity: 'base', numeric: true });
+    const expectedTitleOrder = (games: Awaited<ReturnType<typeof readVisibleGames>>, direction: 'asc' | 'desc') =>
+      [...games].sort((a, b) => {
+        const comparison = titleComparator.compare(a.title, b.title);
+        return comparison === 0 ? a.id - b.id : direction === 'asc' ? comparison : -comparison;
+      });
+
+    const initialGames = await readVisibleGames();
+    expect(initialGames.length).toBeGreaterThan(1);
+    await expect(visibleCards).toHaveCount(initialGames.length);
+
+    await sortSelect.selectOption('title-desc');
+    expect(await readVisibleGames()).toEqual(expectedTitleOrder(initialGames, 'desc'));
+
+    await sortSelect.selectOption('rating-desc');
+    const ratingSorted = await readVisibleGames();
+    expect(ratingSorted).toEqual(
+      [...initialGames].sort((a, b) => {
+        if ((a.rating === null) !== (b.rating === null)) return a.rating === null ? 1 : -1;
+        if (a.rating !== b.rating) return (b.rating ?? 0) - (a.rating ?? 0);
+        return titleComparator.compare(a.title, b.title) || a.id - b.id;
+      }),
+    );
+
+    await page.getByRole('checkbox', { name: 'Strategy' }).check();
+    await page.getByRole('checkbox', { name: 'Puzzle' }).check();
+    await page.getByLabel('Filter by publisher').selectOption({ label: 'CodeForge Studios' });
+    await page.getByTestId('game-search-input').fill('e');
+    const filteredGames = await readVisibleGames();
+    const filteredRatingOrder = [...filteredGames];
+    expect(filteredGames.length).toBeGreaterThan(1);
+    expect(filteredGames).toEqual(
+      filteredRatingOrder.sort((a, b) => {
+        if ((a.rating === null) !== (b.rating === null)) return a.rating === null ? 1 : -1;
+        if (a.rating !== b.rating) return (b.rating ?? 0) - (a.rating ?? 0);
+        return titleComparator.compare(a.title, b.title) || a.id - b.id;
+      }),
+    );
+
+    await sortSelect.selectOption('title-asc');
+    const filteredTitleOrder = await readVisibleGames();
+    expect(filteredTitleOrder).toEqual(expectedTitleOrder(filteredGames, 'asc'));
+  });
+
   test('should search by title and compose with category and publisher filters', async ({ page }) => {
     await page.goto('/');
     const searchInput = page.getByTestId('game-search-input');
