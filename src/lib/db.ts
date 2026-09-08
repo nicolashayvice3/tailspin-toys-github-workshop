@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { drizzle } from 'drizzle-orm/sqlite-proxy';
 import type { AsyncRemoteCallback, SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy';
 import * as schema from '../../db/schema';
+import { naturalTitleSortKey } from './game-sort';
 
 export type Database = SqliteRemoteDatabase<typeof schema>;
 
@@ -84,6 +85,9 @@ export function createDatabaseConnection(
 ): DatabaseConnection {
     const sqlite = new DatabaseSync(databasePath(url));
     sqlite.exec('PRAGMA short_column_names = OFF; PRAGMA full_column_names = ON;');
+    sqlite.function('tailspin_title_sort_key', { deterministic: true }, (title: unknown) =>
+        naturalTitleSortKey(String(title ?? '')),
+    );
     const db = drizzle(createRemoteCallback(sqlite), { schema });
     return { db, sqlite };
 }

@@ -177,11 +177,11 @@ export async function getAllGames(db: Database, filters: GameFilters = {}): Prom
     if (condition) {
         const rows = await baseGamesQuery(db)
             .where(condition)
-            .orderBy(sql`lower(${games.title})`, asc(games.id));
+            .orderBy(sql`tailspin_title_sort_key(${games.title})`, asc(games.id));
         return rows.map(mapGame);
     }
 
-    const rows = await baseGamesQuery(db).orderBy(sql`lower(${games.title})`, asc(games.id));
+    const rows = await baseGamesQuery(db).orderBy(sql`tailspin_title_sort_key(${games.title})`, asc(games.id));
     return rows.map(mapGame);
 }
 
@@ -230,11 +230,11 @@ export async function getPaginatedGames(
     const rows = condition
         ? await baseGamesQuery(db)
               .where(condition)
-              .orderBy(sql`lower(${games.title})`, asc(games.id))
+              .orderBy(sql`tailspin_title_sort_key(${games.title})`, asc(games.id))
               .limit(pageSize)
               .offset(offset)
         : await baseGamesQuery(db)
-              .orderBy(sql`lower(${games.title})`, asc(games.id))
+              .orderBy(sql`tailspin_title_sort_key(${games.title})`, asc(games.id))
               .limit(pageSize)
               .offset(offset);
 
@@ -280,7 +280,7 @@ export async function getCatalogSummary(db: Database): Promise<CatalogSummary> {
  * @returns Ordered list of game IDs.
  */
 export async function getAllGameIds(db: Database): Promise<number[]> {
-    const rows = await db.select({ id: games.id }).from(games).orderBy(sql`lower(${games.title})`, asc(games.id));
+    const rows = await db.select({ id: games.id }).from(games).orderBy(sql`tailspin_title_sort_key(${games.title})`, asc(games.id));
     return rows.map((row) => row.id);
 }
 
@@ -339,6 +339,6 @@ export async function getPublisherById(db: Database, id: number): Promise<Publis
 export async function getGamesByPublisherId(db: Database, publisherId: number): Promise<Game[]> {
     const rows = await baseGamesQuery(db)
         .where(eq(games.publisherId, publisherId))
-        .orderBy(sql`lower(${games.title})`, asc(games.id));
+        .orderBy(sql`tailspin_title_sort_key(${games.title})`, asc(games.id));
     return rows.map(mapGame);
 }

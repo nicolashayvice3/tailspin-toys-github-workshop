@@ -33,6 +33,16 @@ function baselinePageHref(pageNumber: number): string {
     return pageNumber === 1 ? '/' : `/games/page/${pageNumber}/`;
 }
 
+function resultsSummaryText(page: number, pageSize: number, totalCount: number): string {
+    if (totalCount === 0) {
+        return '0 games shown';
+    }
+
+    const start = (page - 1) * pageSize + 1;
+    const end = Math.min(page * pageSize, totalCount);
+    return `Showing ${start}-${end} of ${totalCount} ${totalCount === 1 ? 'game' : 'games'}`;
+}
+
 const pageLinks = Array.from({ length: pagination.totalPages }, (_, index) => index + 1);
 ---
 
@@ -163,7 +173,7 @@ const pageLinks = Array.from({ length: pagination.totalPages }, (_, index) => in
         Clear filters
       </button>
       <p class="text-sm text-slate-400" data-testid="results-summary" role="status" aria-live="polite">
-        {pagination.totalCount} {pagination.totalCount === 1 ? 'game' : 'games'} shown
+        {resultsSummaryText(pagination.page, pagination.pageSize, pagination.totalCount)}
       </p>
     </div>
 
@@ -179,7 +189,7 @@ const pageLinks = Array.from({ length: pagination.totalPages }, (_, index) => in
 </div>
 
 <div>
-  <h2 class="text-2xl font-medium mb-6 text-slate-100">Featured Games</h2>
+  <h2 class="text-2xl font-medium mb-6 text-slate-100" data-testid="catalog-heading" tabindex="-1">Featured Games</h2>
 
   {pagination.totalCount === 0 ? (
     <EmptyState text="No games available at the moment." />
@@ -189,6 +199,7 @@ const pageLinks = Array.from({ length: pagination.totalPages }, (_, index) => in
         class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
         data-testid="games-grid"
         data-page-size={pagination.pageSize}
+        data-total-pages={pagination.totalPages}
       >
         {games.map((game) => (
           <GameCard game={game} />
@@ -200,6 +211,14 @@ const pageLinks = Array.from({ length: pagination.totalPages }, (_, index) => in
         hidden
       >
         No games match the current search or filters.
+      </div>
+      <div
+        class="mt-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-100"
+        data-testid="catalog-invalid-state"
+        role="alert"
+        hidden
+      >
+        One or more requested filters are not available. Clear filters to return to the full catalog.
       </div>
       <div
         class="mt-4 rounded-xl border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-100"
@@ -326,8 +345,17 @@ const pageLinks = Array.from({ length: pagination.totalPages }, (_, index) => in
   const sortSelect = document.querySelector<HTMLSelectElement>('[data-testid="game-sort"]');
   const paginationNav = document.querySelector<HTMLElement>('[data-testid="pagination"]');
   const errorState = document.querySelector<HTMLElement>('[data-testid="catalog-load-error"]');
+  const invalidState = document.querySelector<HTMLElement>('[data-testid="catalog-invalid-state"]');
+  const catalogHeading = document.querySelector<HTMLElement>('[data-testid="catalog-heading"]');
   const retryButton = document.querySelector<HTMLButtonElement>('[data-testid="catalog-retry-button"]');
   const pageSize = Number(gamesGrid?.dataset.pageSize ?? DEFAULT_PAGE_SIZE) || DEFAULT_PAGE_SIZE;
+  const staticTotalPages = Number(gamesGrid?.dataset.totalPages ?? '1') || 1;
+  const availableCategoryIds = new Set(categoryInputs.map((input) => Number(input.value)));
+  const availablePublisherIds = new Set(
+    Array.from(publisherFilter?.options ?? [])
+      .map((option) => parsePositiveInteger(option.value))
+      .filter((value): value is number => value !== null),
+  );
   const catalogItemsUrl = '/games/catalog.json';
   const cardFragmentCache = new Map<number, string>();
   let catalogItemsPromise: Promise<CatalogItem[]> | null = null;
@@ -344,8 +372,8 @@ const pageLinks = Array.from({ length: pagination.totalPages }, (_, index) => in
     return match ? normalizePage(match[1]) : 1;
   }
 
-  function getCurrentStaticPage(): number {
-    return getPageFromPath(window.location.pathname);
+  function clampPageToStaticRange(page: number): number {
+    return Math.min(normalizePage(page), staticTotalPages);
   }
 
   function getSortOption(value: string | null | undefined): GameSortOption {
@@ -371,10 +399,19 @@ const pageLinks = Array.from({ length: pagination.totalPages }, (_, index) => in
 
   function readStateFromControls(page: number): CatalogState {
     const publisherId = parsePositiveInteger(publisherFilter?.value ?? null);
+    const unknownCategoryIds = latestState.categoryIds.filter((categoryId) => !availableCategoryIds.has(categoryId));
+    const unknownPublisherId =
+      latestState.publisherId !== null && !availablePublisherIds.has(latestState.publisherId)
+        ? latestState.publisherId
+        : null;
+
     return {
       query: searchInput?.value ?? '',
-      categoryIds: categoryInputs.filter((input) => input.checked).map((input) => Number(input.value)),
-      publisherId,
+      categoryIds: [
+        ...unknownCategoryIds,
+        ...categoryInputs.filter((input) => input.checked).map((input) => Number(input.value)),
+      ],
+      publisherId: publisherId ?? unknownPublisherId,
       sort: getSortOption(sortSelect?.value),
       page,
     };
@@ -413,6 +450,15 @@ const pageLinks = Array.from({ length: pagination.totalPages }, (_, index) => in
     return page <= 1 ? '/' : `/games/page/${page}/`;
   }
 
+  function hasUnavailableFilters(state: CatalogState): boolean {
+    return state.categoryIds.some((categoryId) => !availableCategoryIds.has(categoryId)) ||
+      (state.publisherId !== null && !availablePublisherIds.has(state.publisherId));
+  }
+
+  function isPositiveInteger(value: unknown): value is number {
+    return Number.isInteger(value) && Number(value) > 0;
+  }
+
   function hydrateControls(state: CatalogState): void {
     if (searchInput) {
       searchInput.value = state.query;
@@ -429,6 +475,23 @@ const pageLinks = Array.from({ length: pagination.totalPages }, (_, index) => in
     if (sortSelect) {
       sortSelect.value = state.sort;
     }
+
+    if (invalidState) {
+      invalidState.hidden = !hasUnavailableFilters(state);
+    }
+  }
+
+  function isCatalogItem(value: unknown): value is CatalogItem {
+    if (typeof value !== 'object' || value === null) {
+      return false;
+    }
+
+    const item = value as Record<string, unknown>;
+    return isPositiveInteger(item.id) &&
+      typeof item.title === 'string' &&
+      (Number.isFinite(item.starRating) || item.starRating === null) &&
+      (isPositiveInteger(item.categoryId) || item.categoryId === null) &&
+      (isPositiveInteger(item.publisherId) || item.publisherId === null);
   }
 
   async function getCatalogItems(): Promise<CatalogItem[]> {
@@ -438,9 +501,9 @@ const pageLinks = Array.from({ length: pagination.totalPages }, (_, index) => in
           throw new Error(`Catalog data request failed with HTTP ${response.status}.`);
         }
 
-        const payload = await response.json() as { games?: CatalogItem[] };
-        if (!Array.isArray(payload.games)) {
-          throw new Error('Catalog data response was missing games.');
+        const payload = await response.json() as { games?: unknown };
+        if (!Array.isArray(payload.games) || !payload.games.every(isCatalogItem)) {
+          throw new Error('Catalog data response was missing valid games.');
         }
 
         return payload.games;
@@ -494,6 +557,16 @@ const pageLinks = Array.from({ length: pagination.totalPages }, (_, index) => in
     if (errorState) {
       errorState.hidden = !isVisible;
     }
+  }
+
+  function getResultsSummaryText(page: number, size: number, totalCount: number): string {
+    if (totalCount === 0) {
+      return '0 games shown';
+    }
+
+    const start = (page - 1) * size + 1;
+    const end = Math.min(page * size, totalCount);
+    return `Showing ${start}-${end} of ${totalCount} ${totalCount === 1 ? 'game' : 'games'}`;
   }
 
   function createPageHref(state: CatalogState, page: number): string {
@@ -563,7 +636,11 @@ const pageLinks = Array.from({ length: pagination.totalPages }, (_, index) => in
     }
   }
 
-  async function renderEnhancedCatalog(state: CatalogState, shouldPushState: boolean): Promise<void> {
+  async function renderEnhancedCatalog(
+    state: CatalogState,
+    shouldPushState: boolean,
+    shouldFocusHeading = false,
+  ): Promise<void> {
     const renderId = latestRenderId + 1;
     latestRenderId = renderId;
     latestState = state;
@@ -594,10 +671,11 @@ const pageLinks = Array.from({ length: pagination.totalPages }, (_, index) => in
       }
 
       if (resultsSummary) {
-        resultsSummary.textContent = `${pageResult.totalCount} ${pageResult.totalCount === 1 ? 'game' : 'games'} shown`;
+        resultsSummary.textContent = getResultsSummaryText(pageResult.page, pageResult.pageSize, pageResult.totalCount);
       }
 
       updatePagination(clampedState, pageResult.totalCount, pageResult.totalPages);
+      hydrateControls(clampedState);
       const nextUrl = buildStateUrl(clampedState);
       const currentUrl = `${window.location.pathname}${window.location.search}`;
 
@@ -610,6 +688,9 @@ const pageLinks = Array.from({ length: pagination.totalPages }, (_, index) => in
       }
 
       latestState = clampedState;
+      if (shouldFocusHeading) {
+        catalogHeading?.focus();
+      }
     } catch (error) {
       if (renderId !== latestRenderId) {
         return;
@@ -629,8 +710,11 @@ const pageLinks = Array.from({ length: pagination.totalPages }, (_, index) => in
 
   hydrateControls(latestState);
 
-  if (isDefaultState(latestState) && latestState.page !== getCurrentStaticPage()) {
-    window.location.replace(buildBaselinePageUrl(latestState.page));
+  if (isDefaultState(latestState)) {
+    const baselineUrl = buildBaselinePageUrl(clampPageToStaticRange(latestState.page));
+    if (`${window.location.pathname}${window.location.search}` !== baselineUrl) {
+      window.location.replace(baselineUrl);
+    }
   } else if (!isDefaultState(latestState)) {
     void renderEnhancedCatalog(latestState, false);
   }
@@ -667,6 +751,17 @@ const pageLinks = Array.from({ length: pagination.totalPages }, (_, index) => in
   });
 
   paginationNav?.addEventListener('click', (event) => {
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
+    }
+
     const target = event.target;
     if (!(target instanceof Element)) {
       return;
@@ -685,7 +780,7 @@ const pageLinks = Array.from({ length: pagination.totalPages }, (_, index) => in
     }
 
     event.preventDefault();
-    void renderEnhancedCatalog(state, true);
+    void renderEnhancedCatalog(state, true, true);
   });
 
   retryButton?.addEventListener('click', () => {
@@ -698,7 +793,10 @@ const pageLinks = Array.from({ length: pagination.totalPages }, (_, index) => in
     hydrateControls(state);
 
     if (isDefaultState(state)) {
-      window.location.assign(buildBaselinePageUrl(state.page));
+      const baselineUrl = buildBaselinePageUrl(clampPageToStaticRange(state.page));
+      if (`${window.location.pathname}${window.location.search}` !== baselineUrl) {
+        window.location.replace(baselineUrl);
+      }
       return;
     }
 

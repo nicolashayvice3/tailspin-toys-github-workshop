@@ -4,6 +4,10 @@ import { getAllGames } from '../../lib/games';
 
 export const prerender = true;
 
+/**
+ * Emits browser-safe catalog metadata for progressive enhancement without exposing Drizzle in the client bundle.
+ * @returns Static JSON used by search, filter, sort, and enhanced pagination controls.
+ */
 export const GET: APIRoute = async () => {
     const games = await getAllGames(getDatabase());
 

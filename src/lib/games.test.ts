@@ -124,9 +124,9 @@ describe('games data-access helpers', () => {
             expect(gameList.map((game) => game.id)).toEqual(originalIds);
         });
 
-        it('orders titles case-insensitively with SQLite-compatible ASCII comparison and ID tie-breaking', () => {
-            expect(sortGames(gameList, 'title-asc').map((game) => game.id)).toEqual([1, 3, 2, 4, 5]);
-            expect(sortGames(gameList, 'title-desc').map((game) => game.id)).toEqual([5, 4, 2, 1, 3]);
+        it('orders titles by natural case-insensitive comparison with ID tie-breaking', () => {
+            expect(sortGames(gameList, 'title-asc').map((game) => game.id)).toEqual([1, 3, 4, 2, 5]);
+            expect(sortGames(gameList, 'title-desc').map((game) => game.id)).toEqual([5, 2, 4, 1, 3]);
         });
 
         it('orders ratings highest first, keeps zero rated, and places null last', () => {
@@ -247,17 +247,26 @@ describe('games data-access helpers', () => {
                 .returning({ id: publishers.id });
 
             await db.insert(games).values([
-                { title: 'game 2', description: 'Two', starRating: null, categoryId: category.id, publisherId: publisher.id },
-                { title: 'Game 10', description: 'Ten', starRating: 0, categoryId: category.id, publisherId: publisher.id },
-                { title: 'game 1', description: 'One', starRating: 4.5, categoryId: category.id, publisherId: publisher.id },
-                { title: 'GAME 1', description: 'One upper', starRating: 4.5, categoryId: category.id, publisherId: publisher.id },
+                { title: 'Éclair 2', description: 'Accent two', starRating: null, categoryId: category.id, publisherId: publisher.id },
+                { title: 'eclair 10', description: 'Accent ten', starRating: 0, categoryId: category.id, publisherId: publisher.id },
+                { title: 'Zed', description: 'Zed upper', starRating: 4.5, categoryId: category.id, publisherId: publisher.id },
+                { title: 'éclair 1', description: 'Accent one', starRating: 4.5, categoryId: category.id, publisherId: publisher.id },
+                { title: 'ÉCLAIR 1', description: 'Accent one upper', starRating: 4.5, categoryId: category.id, publisherId: publisher.id },
+                { title: 'zed', description: 'Zed lower', starRating: 4.5, categoryId: category.id, publisherId: publisher.id },
             ]);
 
             const sqlOrdered = await getAllGames(db);
             const browserOrdered = sortGames(sqlOrdered, 'title-asc');
 
             expect(sqlOrdered.map((game) => game.id)).toEqual(browserOrdered.map((game) => game.id));
-            expect(sqlOrdered.map((game) => game.title)).toEqual(['game 1', 'GAME 1', 'Game 10', 'game 2']);
+            expect(sqlOrdered.map((game) => game.title)).toEqual([
+                'éclair 1',
+                'ÉCLAIR 1',
+                'Éclair 2',
+                'eclair 10',
+                'Zed',
+                'zed',
+            ]);
         });
     // Related descriptions should be normalized consistently even when the underlying text is blank.
     it('normalizes missing and whitespace-only related descriptions to null', async () => {
