@@ -48,6 +48,20 @@ if (!game) {
           )}
         </div>
 
+        {game.category && game.category.description && (
+          <div class="mt-4 rounded-xl border border-slate-700 bg-slate-900/60 p-4" data-testid="game-details-category-description">
+            <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-300 mb-2">Category</h2>
+            <p class="text-slate-300">{game.category.description}</p>
+          </div>
+        )}
+
+        {game.publisher && game.publisher.description && (
+          <div class="mt-4 rounded-xl border border-slate-700 bg-slate-900/60 p-4" data-testid="game-details-publisher-description">
+            <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-300 mb-2">Publisher</h2>
+            <p class="text-slate-300">{game.publisher.description}</p>
+          </div>
+        )}
+
         <div class="space-y-4 mt-6">
           <h2 class="text-lg font-semibold text-slate-200 mb-2">About this game</h2>
           <div class="text-slate-400 space-y-4">
