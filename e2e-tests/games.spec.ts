@@ -24,6 +24,50 @@ test.describe('Game Listing and Navigation', () => {
     });
   });
 
+  test('should search by title and compose with category and publisher filters', async ({ page }) => {
+    await page.goto('/');
+    const searchInput = page.getByTestId('game-search-input');
+    const visibleTitles = page.locator('[data-testid="game-card"]:visible [data-testid="game-title"]');
+
+    await test.step('Search by title with case-insensitive whitespace matching', async () => {
+      await searchInput.fill('  dEvOpS  ');
+      await expect(visibleTitles).toHaveCount(1);
+      await expect(visibleTitles).toHaveText('DevOps Dominion');
+      await expect(page.getByTestId('results-summary')).toHaveText('1 game shown');
+      await searchInput.fill('');
+    });
+
+    await test.step('Apply category and publisher filters before searching', async () => {
+      await page.getByRole('checkbox', { name: 'Strategy' }).check();
+      await page.getByRole('checkbox', { name: 'Puzzle' }).check();
+      await page.getByLabel('Filter by publisher').selectOption({ label: 'CodeForge Studios' });
+      await expect(visibleTitles).toHaveCount(2);
+      const titles = await visibleTitles.allTextContents();
+      expect(titles).toEqual(['Code Puzzle Chronicles', 'DevOps Dominion']);
+    });
+
+    await test.step('Search within the selected filter subset', async () => {
+      await searchInput.fill('zzz-no-matches');
+      await expect(visibleTitles).toHaveCount(0);
+      await expect(page.getByTestId('filter-empty-state')).toBeVisible();
+      await expect(page.getByTestId('results-summary')).toHaveText('0 games shown');
+    });
+
+    await test.step('Clear the query while preserving selected filters', async () => {
+      await searchInput.fill('');
+      await expect(visibleTitles).toHaveCount(2);
+      const titles = await visibleTitles.allTextContents();
+      expect(titles).toEqual(['Code Puzzle Chronicles', 'DevOps Dominion']);
+    });
+
+    await test.step('Clear all controls and restore the full catalog', async () => {
+      await page.getByTestId('clear-filters-button').click();
+      await expect(searchInput).toHaveValue('');
+      await expect(page.getByTestId('filter-empty-state')).toBeHidden();
+      await expect(visibleTitles).toHaveCount(21);
+    });
+  });
+
   test('should navigate to a publisher page from the game details view', async ({ page }) => {
     let publisherName: string | null = null;
 
