@@ -156,6 +156,82 @@ test.describe('Game Listing and Navigation', () => {
     });
   });
 
+  test('should allow filtering by multiple categories and a publisher together', async ({ page }) => {
+    let fullCatalogIds: number[] = [];
+
+    await test.step('Navigate to homepage and apply combined filters', async () => {
+      await page.goto('/');
+      await expect(page.getByTestId('filter-empty-state')).toBeHidden();
+      fullCatalogIds = await page.locator('[data-testid="game-card"]').evaluateAll((cards) =>
+        cards.map((card) => Number(card.getAttribute('data-game-id'))),
+      );
+      await page.getByRole('checkbox', { name: 'Strategy' }).check();
+      await page.getByRole('checkbox', { name: 'Puzzle' }).check();
+      await page.getByLabel('Filter by publisher').selectOption({ label: 'CodeForge Studios' });
+    });
+
+    await test.step('Verify only the category+publisher matches remain visible', async () => {
+      const visibleCards = page.locator('[data-testid="game-card"]:visible [data-testid="game-title"]');
+      await expect(visibleCards).toHaveCount(2);
+      const visibleTitles = await visibleCards.allTextContents();
+      expect([...visibleTitles].sort()).toEqual(['Code Puzzle Chronicles', 'DevOps Dominion']);
+      await expect(page.getByTestId('results-summary')).toHaveText('2 games shown');
+      await expect(page.getByTestId('filter-empty-state')).toBeHidden();
+    });
+
+    await test.step('Simulate a synthetic invalid publisher value to force a no-match state', async () => {
+      await page.getByRole('checkbox', { name: 'Strategy' }).uncheck();
+      await page.getByRole('checkbox', { name: 'Puzzle' }).uncheck();
+      await page.getByRole('checkbox', { name: 'Simulation' }).check();
+      await page.getByRole('checkbox', { name: 'Adventure' }).check();
+
+      await page.evaluate(() => {
+        const select = document.querySelector<HTMLSelectElement>('[data-testid="publisher-filter"]');
+        if (!select) {
+          throw new Error('Publisher filter not found');
+        }
+        const invalidOption = document.createElement('option');
+        invalidOption.value = '9999';
+        invalidOption.textContent = 'No Match Publisher';
+        select.append(invalidOption);
+        select.value = '9999';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+
+      const visibleCards = page.locator('[data-testid="game-card"]:visible');
+      await expect(visibleCards).toHaveCount(0);
+      await expect(page.getByTestId('filter-empty-state')).toBeVisible();
+      await expect(page.getByTestId('results-summary')).toHaveText('0 games shown');
+    });
+
+    await test.step('Reset filters and confirm the original catalog returns exactly', async () => {
+      await page.getByTestId('clear-filters-button').click();
+
+      const visibleIds = await page.locator('[data-testid="game-card"]:visible').evaluateAll((cards) =>
+        cards.map((card) => Number(card.getAttribute('data-game-id'))),
+      );
+      await expect(page.locator('input[name="category"][type="checkbox"]:checked')).toHaveCount(0);
+      await expect(page.getByLabel('Filter by publisher')).toHaveValue('');
+      expect(visibleIds).toEqual(fullCatalogIds);
+      await expect(page.getByTestId('filter-empty-state')).toBeHidden();
+      await expect(page.getByTestId('results-summary')).toHaveText(`${fullCatalogIds.length} games shown`);
+    });
+  });
+
+  test('should support keyboard interactions for category filters', async ({ page }) => {
+    await test.step('Navigate to the homepage and toggle a category with the keyboard', async () => {
+      await page.goto('/');
+      const strategyCheckbox = page.getByRole('checkbox', { name: 'Strategy' });
+
+      await strategyCheckbox.focus();
+      await expect(strategyCheckbox).toBeFocused();
+      await page.keyboard.press('Space');
+      await expect(strategyCheckbox).toBeChecked();
+      await expect(page.getByTestId('results-summary')).toHaveText('4 games shown');
+      await expect(page.locator('[data-testid="game-card"]:visible')).toHaveCount(4);
+    });
+  });
+
   test('should display a button to back the game', async ({ page }) => {
     await test.step('Navigate to game details page', async () => {
       await page.goto('/game/1');
