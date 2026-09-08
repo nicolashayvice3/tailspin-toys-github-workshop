@@ -28,43 +28,64 @@ test.describe('Game Listing and Navigation', () => {
     await page.goto('/');
     const searchInput = page.getByTestId('game-search-input');
     const visibleTitles = page.locator('[data-testid="game-card"]:visible [data-testid="game-title"]');
+    const allGameIds = await page.locator('[data-testid="game-card"]').evaluateAll((cards) =>
+      cards.map((card) => Number(card.getAttribute('data-game-id'))),
+    );
+    const catalogTotal = await page.getByTestId('catalog-summary-total').textContent();
+    const catalogAverage = await page.getByTestId('catalog-summary-average').textContent();
+    const initialUrl = page.url();
 
-    await test.step('Search by title with case-insensitive whitespace matching', async () => {
-      await searchInput.fill('  dEvOpS  ');
-      await expect(visibleTitles).toHaveCount(1);
-      await expect(visibleTitles).toHaveText('DevOps Dominion');
-      await expect(page.getByTestId('results-summary')).toHaveText('1 game shown');
-      await searchInput.fill('');
-    });
-
-    await test.step('Apply category and publisher filters before searching', async () => {
-      await page.getByRole('checkbox', { name: 'Strategy' }).check();
-      await page.getByRole('checkbox', { name: 'Puzzle' }).check();
-      await page.getByLabel('Filter by publisher').selectOption({ label: 'CodeForge Studios' });
+    await test.step('Search first and submit with the keyboard without navigating', async () => {
+      await searchInput.fill('  cOdE  ');
+      await searchInput.press('Enter');
+      await expect(page).toHaveURL(initialUrl);
+      await expect(searchInput).toHaveValue('  cOdE  ');
+      await expect(searchInput).toBeFocused();
       await expect(visibleTitles).toHaveCount(2);
-      const titles = await visibleTitles.allTextContents();
-      expect(titles).toEqual(['Code Puzzle Chronicles', 'DevOps Dominion']);
+      await expect(visibleTitles).toHaveText(['Code Puzzle Chronicles', 'Code Quest Odyssey']);
     });
 
-    await test.step('Search within the selected filter subset', async () => {
+    await test.step('Change publisher then categories while the query remains active', async () => {
+      await page.getByLabel('Filter by publisher').selectOption({ label: 'CodeForge Studios' });
+      await expect(visibleTitles).toHaveText(['Code Puzzle Chronicles', 'Code Quest Odyssey']);
+      await page.getByRole('checkbox', { name: 'Puzzle' }).check();
+      await page.getByRole('checkbox', { name: 'Strategy' }).check();
+      await expect(visibleTitles).toHaveCount(1);
+      await expect(visibleTitles).toHaveText('Code Puzzle Chronicles');
+      await expect(page.getByTestId('results-summary')).toHaveText('1 game shown');
+    });
+
+    await test.step('Submit through the button and show a single coherent no-match state', async () => {
       await searchInput.fill('zzz-no-matches');
+      await page.getByTestId('game-search-submit').click();
       await expect(visibleTitles).toHaveCount(0);
       await expect(page.getByTestId('filter-empty-state')).toBeVisible();
       await expect(page.getByTestId('results-summary')).toHaveText('0 games shown');
+      await expect(searchInput).toBeFocused();
     });
 
-    await test.step('Clear the query while preserving selected filters', async () => {
-      await searchInput.fill('');
-      await expect(visibleTitles).toHaveCount(2);
-      const titles = await visibleTitles.allTextContents();
-      expect(titles).toEqual(['Code Puzzle Chronicles', 'DevOps Dominion']);
+    await test.step('Clear the query while preserving both selected filter groups', async () => {
+      await searchInput.fill('code');
+      await expect(visibleTitles).toHaveCount(1);
+      await expect(visibleTitles).toHaveText('Code Puzzle Chronicles');
+      await expect(page.getByRole('checkbox', { name: 'Puzzle' })).toBeChecked();
+      await expect(page.getByRole('checkbox', { name: 'Strategy' })).toBeChecked();
+      await expect(page.getByLabel('Filter by publisher')).toHaveValue(/./);
     });
 
-    await test.step('Clear all controls and restore the full catalog', async () => {
+    await test.step('Clear all controls from a nonempty query and restore the exact catalog', async () => {
       await page.getByTestId('clear-filters-button').click();
       await expect(searchInput).toHaveValue('');
       await expect(page.getByTestId('filter-empty-state')).toBeHidden();
-      await expect(visibleTitles).toHaveCount(21);
+      await expect(page.locator('input[name="category"][type="checkbox"]:checked')).toHaveCount(0);
+      await expect(page.getByLabel('Filter by publisher')).toHaveValue('');
+      await expect(visibleTitles).toHaveCount(allGameIds.length);
+      const restoredGameIds = await page.locator('[data-testid="game-card"]:visible').evaluateAll((cards) =>
+        cards.map((card) => Number(card.getAttribute('data-game-id'))),
+      );
+      expect(restoredGameIds).toEqual(allGameIds);
+      await expect(page.getByTestId('catalog-summary-total')).toHaveText(catalogTotal!);
+      await expect(page.getByTestId('catalog-summary-average')).toHaveText(catalogAverage!);
     });
   });
 
