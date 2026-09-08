@@ -14,7 +14,7 @@ test.describe('Game Listing and Navigation', () => {
     await test.step('Verify game cards are displayed', async () => {
       const gameCards = page.getByTestId('game-card');
       await expect(gameCards.first()).toBeVisible();
-      expect(await gameCards.count()).toBeGreaterThan(0);
+      await expect(gameCards).toHaveCount(9);
     });
 
     await test.step('Verify game cards have titles with content', async () => {
@@ -22,16 +22,123 @@ test.describe('Game Listing and Navigation', () => {
       await expect(gameCards.first().getByTestId('game-title')).toBeVisible();
       await expect(gameCards.first().getByTestId('game-title')).not.toBeEmpty();
     });
+
+    await test.step('Verify static pagination starts with a single current page', async () => {
+      await expect(page.getByTestId('pagination')).toBeVisible();
+      await expect(page.locator('[aria-current="page"]')).toHaveCount(1);
+      await expect(page.getByTestId('pagination-page-current-1')).toBeVisible();
+      await expect(page.getByTestId('results-summary')).toHaveText('21 games shown');
+    });
+  });
+
+  test('should serve real static paginated pages without fetching the interactive catalog', async ({ page }) => {
+    const catalogRequests: string[] = [];
+    page.on('request', (request) => {
+      if (request.url().includes('/games/catalog.json')) {
+        catalogRequests.push(request.url());
+      }
+    });
+
+    await test.step('Open the first static page with only one page of cards rendered', async () => {
+      await page.goto('/');
+      await expect(page.getByTestId('game-card')).toHaveCount(9);
+      await expect(page.getByTestId('game-card').first()).toHaveAttribute('data-game-id', '14');
+      expect(catalogRequests).toEqual([]);
+    });
+
+    await test.step('Navigate to page 2 through a real static link', async () => {
+      await page.getByTestId('pagination-next').click();
+      await expect(page).toHaveURL(/\/games\/page\/2\/$/);
+      await expect(page.getByTestId('game-card')).toHaveCount(9);
+      await expect(page.getByTestId('game-card').first()).toHaveAttribute('data-game-id', '11');
+      await expect(page.locator('[aria-current="page"]')).toHaveCount(1);
+      await expect(page.getByTestId('pagination-page-current-2')).toBeVisible();
+      expect(catalogRequests).toEqual([]);
+    });
+
+    await test.step('Navigate directly to the last static page and back to page 1', async () => {
+      await page.getByTestId('pagination-page-3').click();
+      await expect(page).toHaveURL(/\/games\/page\/3\/$/);
+      await expect(page.getByTestId('game-card')).toHaveCount(3);
+      await expect(page.getByTestId('game-card').first()).toHaveAttribute('data-game-id', '20');
+      await expect(page.getByTestId('pagination-next')).toHaveAttribute('aria-disabled', 'true');
+
+      await page.getByTestId('pagination-page-1').click();
+      await expect(page).toHaveURL(/\/$/);
+      await expect(page.getByTestId('game-card')).toHaveCount(9);
+      await expect(page.getByTestId('game-card').first()).toHaveAttribute('data-game-id', '14');
+      expect(catalogRequests).toEqual([]);
+    });
+  });
+
+  test('should return a 404 for pagination paths outside the prerendered range', async ({ page }) => {
+    const response = await page.goto('/games/page/999/');
+
+    expect(response?.status()).toBe(404);
+    await expect(page.getByTestId('not-found')).toBeVisible();
+  });
+
+  test('should hydrate interactive pagination from direct reload and browser history', async ({ page }) => {
+    await test.step('Open a filtered URL whose result is outside the first static page', async () => {
+      await page.goto('/games/page/2/?page=2&query=Virtual');
+      await expect(page).toHaveURL(/\/\?page=1&query=Virtual$/);
+      await expect(page.getByTestId('game-card')).toHaveCount(1);
+      await expect(page.getByTestId('game-title')).toHaveText('Virtual Server Simulator');
+      await expect(page.getByTestId('results-summary')).toHaveText('1 game shown');
+      await expect(page.getByTestId('pagination')).toBeHidden();
+    });
+
+    await test.step('Move through enhanced history without losing state', async () => {
+      await page.getByTestId('game-search-input').fill('');
+      await page.getByTestId('game-sort').selectOption('title-desc');
+      await page.getByTestId('pagination-page-2').click();
+      await expect(page).toHaveURL(/\/games\/page\/2\/\?page=2&sort=title-desc$/);
+      await expect(page.getByTestId('pagination-page-current-2')).toBeVisible();
+
+      await page.goBack();
+      await expect(page).toHaveURL(/\/\?page=1&sort=title-desc$/);
+      await expect(page.getByTestId('pagination-page-current-1')).toBeVisible();
+      await page.goForward();
+      await expect(page).toHaveURL(/\/games\/page\/2\/\?page=2&sort=title-desc$/);
+      await expect(page.getByTestId('pagination-page-current-2')).toBeVisible();
+    });
+  });
+
+  test('should preserve repeated category, publisher, sort, query, and page state in enhanced links', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('checkbox', { name: 'Strategy' }).check();
+    await page.getByRole('checkbox', { name: 'Puzzle' }).check();
+    await page.getByLabel('Filter by publisher').selectOption({ label: 'CodeForge Studios' });
+    await page.getByTestId('game-search-input').fill('e');
+    await page.getByTestId('game-sort').selectOption('title-desc');
+
+    const url = new URL(page.url());
+    expect(url.searchParams.getAll('category')).toHaveLength(2);
+    expect(url.searchParams.get('publisher')).toBeTruthy();
+    expect(url.searchParams.get('sort')).toBe('title-desc');
+    expect(url.searchParams.get('query')).toBe('e');
+    expect(url.searchParams.get('page')).toBe('1');
+    await expect(page.getByTestId('pagination')).toBeHidden();
+    await expect(page.getByTestId('game-title')).toHaveText(['DevOps Dominion', 'Code Puzzle Chronicles']);
+  });
+
+  test('should keep the current static page visible and surface an error when lazy catalog loading fails', async ({ page }) => {
+    await page.route('**/games/catalog.json', (route) => route.fulfill({ status: 503, body: 'unavailable' }));
+    await page.goto('/');
+    await page.getByTestId('game-search-input').fill('Virtual');
+
+    await expect(page.getByTestId('catalog-load-error')).toBeVisible();
+    await expect(page.getByTestId('results-summary')).toHaveText('Could not update catalog. Try again.');
+    await expect(page.getByTestId('game-card')).toHaveCount(9);
   });
 
   test('should reorder visible cards for every sort mode while filters remain active', async ({ page }) => {
     await page.goto('/');
     const sortSelect = page.getByTestId('game-sort');
-    const visibleCards = page.locator('[data-testid="game-card"]:not([hidden])');
+    const visibleCards = page.locator('[data-testid="game-card"]');
 
     const readVisibleGames = async () => page.locator('[data-testid="game-card"]').evaluateAll((cards) =>
       cards
-        .filter((card) => !card.hasAttribute('hidden'))
         .map((card) => ({
           id: Number(card.getAttribute('data-game-id')),
           title: card.getAttribute('data-game-title') ?? '',
@@ -39,27 +146,46 @@ test.describe('Game Listing and Navigation', () => {
         })),
     );
 
-    const titleComparator = new Intl.Collator('en', { sensitivity: 'base', numeric: true });
+    const compareTitles = (
+      a: Awaited<ReturnType<typeof readVisibleGames>>[number],
+      b: Awaited<ReturnType<typeof readVisibleGames>>[number],
+      direction: 'asc' | 'desc',
+    ) => {
+      const titleA = a.title.toLocaleLowerCase();
+      const titleB = b.title.toLocaleLowerCase();
+      const comparison = titleA < titleB ? -1 : titleA > titleB ? 1 : 0;
+      return comparison === 0 ? a.id - b.id : direction === 'asc' ? comparison : -comparison;
+    };
     const expectedTitleOrder = (games: Awaited<ReturnType<typeof readVisibleGames>>, direction: 'asc' | 'desc') =>
-      [...games].sort((a, b) => {
-        const comparison = titleComparator.compare(a.title, b.title);
-        return comparison === 0 ? a.id - b.id : direction === 'asc' ? comparison : -comparison;
-      });
+      [...games].sort((a, b) => compareTitles(a, b, direction));
 
-    const initialGames = await readVisibleGames();
-    expect(initialGames.length).toBeGreaterThan(1);
-    await expect(visibleCards).toHaveCount(initialGames.length);
+    await expect(visibleCards).toHaveCount(9);
 
     await sortSelect.selectOption('title-desc');
-    expect(await readVisibleGames()).toEqual(expectedTitleOrder(initialGames, 'desc'));
+    await expect(visibleCards).toHaveCount(9);
+    await expect(page.locator('[data-testid="game-card"]').first()).toHaveAttribute('data-game-id', '9');
+    const titleDescGames = await readVisibleGames();
+    expect(titleDescGames.map((game) => game.title)).toEqual([
+      'Virtual Server Simulator',
+      'Terminal Turbulence',
+      'Syntax Smashdown',
+      'Stack Trace Secrets',
+      'Server Siege',
+      'Script Strike',
+      'Repo Rulers',
+      'Repo Rampart',
+      'Refactor Realms',
+    ]);
+    expect(titleDescGames).toEqual(expectedTitleOrder(titleDescGames, 'desc'));
 
     await sortSelect.selectOption('rating-desc');
+    await expect(page.locator('[data-testid="game-card"]').first()).toHaveAttribute('data-game-id', '12');
     const ratingSorted = await readVisibleGames();
     expect(ratingSorted).toEqual(
-      [...initialGames].sort((a, b) => {
+      [...ratingSorted].sort((a, b) => {
         if ((a.rating === null) !== (b.rating === null)) return a.rating === null ? 1 : -1;
         if (a.rating !== b.rating) return (b.rating ?? 0) - (a.rating ?? 0);
-        return titleComparator.compare(a.title, b.title) || a.id - b.id;
+        return compareTitles(a, b, 'asc');
       }),
     );
 
@@ -74,7 +200,7 @@ test.describe('Game Listing and Navigation', () => {
       filteredRatingOrder.sort((a, b) => {
         if ((a.rating === null) !== (b.rating === null)) return a.rating === null ? 1 : -1;
         if (a.rating !== b.rating) return (b.rating ?? 0) - (a.rating ?? 0);
-        return titleComparator.compare(a.title, b.title) || a.id - b.id;
+        return compareTitles(a, b, 'asc');
       }),
     );
 
@@ -87,20 +213,20 @@ test.describe('Game Listing and Navigation', () => {
     await page.goto('/');
     const searchInput = page.getByTestId('game-search-input');
     const visibleTitles = page.locator('[data-testid="game-card"]:visible [data-testid="game-title"]');
-    const allGameIds = await page.locator('[data-testid="game-card"]').evaluateAll((cards) =>
+    const firstPageGameIds = await page.locator('[data-testid="game-card"]').evaluateAll((cards) =>
       cards.map((card) => Number(card.getAttribute('data-game-id'))),
     );
     const catalogTotal = await page.getByTestId('catalog-summary-total').textContent();
     const catalogAverage = await page.getByTestId('catalog-summary-average').textContent();
-    const initialUrl = page.url();
 
-    await test.step('Search first and submit with the keyboard without navigating', async () => {
+    await test.step('Search first and submit with the keyboard without a second navigation', async () => {
       await searchInput.fill('  cOdE  ');
+      await expect(visibleTitles).toHaveCount(2);
+      const urlAfterTyping = page.url();
       await searchInput.press('Enter');
-      await expect(page).toHaveURL(initialUrl);
+      await expect(page).toHaveURL(urlAfterTyping);
       await expect(searchInput).toHaveValue('  cOdE  ');
       await expect(searchInput).toBeFocused();
-      await expect(visibleTitles).toHaveCount(2);
       await expect(visibleTitles).toHaveText(['Code Puzzle Chronicles', 'Code Quest Odyssey']);
     });
 
@@ -137,15 +263,16 @@ test.describe('Game Listing and Navigation', () => {
       await expect(visibleTitles).toHaveCount(1);
       await expect(visibleTitles).toHaveText('Code Puzzle Chronicles');
       await page.getByTestId('clear-filters-button').click();
+      await expect(page).toHaveURL('/');
       await expect(searchInput).toHaveValue('');
       await expect(page.getByTestId('filter-empty-state')).toBeHidden();
       await expect(page.locator('input[name="category"][type="checkbox"]:checked')).toHaveCount(0);
       await expect(page.getByLabel('Filter by publisher')).toHaveValue('');
-      await expect(visibleTitles).toHaveCount(allGameIds.length);
-      const restoredGameIds = await page.locator('[data-testid="game-card"]:visible').evaluateAll((cards) =>
+      await expect(visibleTitles).toHaveCount(firstPageGameIds.length);
+      const restoredGameIds = await page.locator('[data-testid="game-card"]').evaluateAll((cards) =>
         cards.map((card) => Number(card.getAttribute('data-game-id'))),
       );
-      expect(restoredGameIds).toEqual(allGameIds);
+      expect(restoredGameIds).toEqual(firstPageGameIds);
       await expect(page.getByTestId('catalog-summary-total')).toHaveText(catalogTotal!);
       await expect(page.getByTestId('catalog-summary-average')).toHaveText(catalogAverage!);
     });
@@ -284,12 +411,12 @@ test.describe('Game Listing and Navigation', () => {
   });
 
   test('should allow filtering by multiple categories and a publisher together', async ({ page }) => {
-    let fullCatalogIds: number[] = [];
+    let firstPageCatalogIds: number[] = [];
 
     await test.step('Navigate to homepage and apply combined filters', async () => {
       await page.goto('/');
       await expect(page.getByTestId('filter-empty-state')).toBeHidden();
-      fullCatalogIds = await page.locator('[data-testid="game-card"]').evaluateAll((cards) =>
+      firstPageCatalogIds = await page.locator('[data-testid="game-card"]').evaluateAll((cards) =>
         cards.map((card) => Number(card.getAttribute('data-game-id'))),
       );
       await page.getByRole('checkbox', { name: 'Strategy' }).check();
@@ -333,15 +460,16 @@ test.describe('Game Listing and Navigation', () => {
 
     await test.step('Reset filters and confirm the original catalog returns exactly', async () => {
       await page.getByTestId('clear-filters-button').click();
+      await expect(page).toHaveURL('/');
 
-      const visibleIds = await page.locator('[data-testid="game-card"]:visible').evaluateAll((cards) =>
+      const visibleIds = await page.locator('[data-testid="game-card"]').evaluateAll((cards) =>
         cards.map((card) => Number(card.getAttribute('data-game-id'))),
       );
       await expect(page.locator('input[name="category"][type="checkbox"]:checked')).toHaveCount(0);
       await expect(page.getByLabel('Filter by publisher')).toHaveValue('');
-      expect(visibleIds).toEqual(fullCatalogIds);
+      expect(visibleIds).toEqual(firstPageCatalogIds);
       await expect(page.getByTestId('filter-empty-state')).toBeHidden();
-      await expect(page.getByTestId('results-summary')).toHaveText(`${fullCatalogIds.length} games shown`);
+      await expect(page.getByTestId('results-summary')).toHaveText('21 games shown');
     });
   });
 
@@ -405,5 +533,19 @@ test.describe('Game Listing and Navigation', () => {
       await expect(page.getByTestId('not-found-heading')).not.toBeEmpty();
       await expect(page.getByTestId('not-found-home-link')).toBeVisible();
     });
+  });
+});
+
+test.describe('Game Listing without JavaScript', () => {
+  test.use({ javaScriptEnabled: false });
+
+  test('should keep static pagination usable and render only the requested page', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByTestId('catalog-noscript-note')).toBeVisible();
+    await expect(page.getByTestId('game-card')).toHaveCount(9);
+    await page.getByTestId('pagination-next').click();
+    await expect(page).toHaveURL(/\/games\/page\/2\/$/);
+    await expect(page.getByTestId('game-card')).toHaveCount(9);
+    await expect(page.getByTestId('pagination-page-current-2')).toBeVisible();
   });
 });

@@ -1,8 +1,15 @@
-import { asc, avg, count, eq, inArray, and } from 'drizzle-orm';
+import { asc, avg, count, eq, inArray, and, sql, type SQL } from 'drizzle-orm';
 import type { Database } from './db';
 import { games, categories, publishers } from '../../db/schema';
 import type { Game, Publisher } from '../types/game';
 export { sortGames, type GameSortOption } from './game-sort';
+import {
+    DEFAULT_PAGE_SIZE,
+    getTotalPages,
+    normalizePage,
+    normalizePageSize,
+    type PaginatedResult,
+} from './pagination';
 
 /**
  * Filters applied to the home catalog before rendering the visible game list.
@@ -11,6 +18,8 @@ export interface GameFilters {
     categoryIds?: number[];
     publisherIds?: number[];
 }
+
+export type PaginatedGamesResult = PaginatedResult<Game>;
 
 const gameSelection = {
     id: games.id,
@@ -64,6 +73,31 @@ function normalizeFilterIds(ids: number[] | null | undefined): number[] {
     }
 
     return [...uniqueIds];
+}
+
+function normalizeFilters(filters: GameFilters): Required<GameFilters> {
+    return {
+        categoryIds: normalizeFilterIds(filters.categoryIds),
+        publisherIds: normalizeFilterIds(filters.publisherIds),
+    };
+}
+
+function getGamesFilterCondition(filters: GameFilters): SQL | undefined {
+    const { categoryIds, publisherIds } = normalizeFilters(filters);
+
+    if (categoryIds.length > 0 && publisherIds.length > 0) {
+        return and(inArray(games.categoryId, categoryIds), inArray(games.publisherId, publisherIds));
+    }
+
+    if (categoryIds.length > 0) {
+        return inArray(games.categoryId, categoryIds);
+    }
+
+    if (publisherIds.length > 0) {
+        return inArray(games.publisherId, publisherIds);
+    }
+
+    return undefined;
 }
 
 export interface CatalogSummary {
@@ -138,29 +172,81 @@ export async function getAllPublishers(db: Database): Promise<Array<{ id: number
  * @returns Games matching the requested filters, ordered alphabetically by title.
  */
 export async function getAllGames(db: Database, filters: GameFilters = {}): Promise<Game[]> {
-    const categoryIds = normalizeFilterIds(filters.categoryIds);
-    const publisherIds = normalizeFilterIds(filters.publisherIds);
-    const baseQuery = baseGamesQuery(db);
+    const condition = getGamesFilterCondition(filters);
 
-    if (categoryIds.length > 0 && publisherIds.length > 0) {
-        const rows = await baseQuery
-            .where(and(inArray(games.categoryId, categoryIds), inArray(games.publisherId, publisherIds)))
-            .orderBy(asc(games.title));
+    if (condition) {
+        const rows = await baseGamesQuery(db)
+            .where(condition)
+            .orderBy(sql`lower(${games.title})`, asc(games.id));
         return rows.map(mapGame);
     }
 
-    if (categoryIds.length > 0) {
-        const rows = await baseQuery.where(inArray(games.categoryId, categoryIds)).orderBy(asc(games.title));
-        return rows.map(mapGame);
-    }
-
-    if (publisherIds.length > 0) {
-        const rows = await baseQuery.where(inArray(games.publisherId, publisherIds)).orderBy(asc(games.title));
-        return rows.map(mapGame);
-    }
-
-    const rows = await baseQuery.orderBy(asc(games.title));
+    const rows = await baseGamesQuery(db).orderBy(sql`lower(${games.title})`, asc(games.id));
     return rows.map(mapGame);
+}
+
+/**
+ * Counts games after applying the same category and publisher filters as the catalog query.
+ * @param db - Database connection used for the aggregate query.
+ * @param filters - Optional category and publisher IDs used for narrowing the catalog.
+ * @returns The number of matching games.
+ */
+export async function getTotalGamesCount(db: Database, filters: GameFilters = {}): Promise<number> {
+    const condition = getGamesFilterCondition(filters);
+    const baseQuery = db.select({ count: count(games.id) }).from(games);
+
+    if (condition) {
+        const result = await baseQuery.where(condition).get();
+        return Number(result?.count ?? 0);
+    }
+
+    const result = await baseQuery.get();
+    return Number(result?.count ?? 0);
+}
+
+/**
+ * Returns one SQL-sliced page of games in the default title order, with filtered total metadata.
+ * The helper intentionally covers the static/no-JavaScript catalog order; browser enhancement applies
+ * search and alternate sort modes through shared pure helpers before slicing.
+ * @param db - Database connection used for the query.
+ * @param options - Optional filters, page, and page size.
+ * @returns One page of matching games and pagination metadata.
+ */
+export async function getPaginatedGames(
+    db: Database,
+    options: {
+        filters?: GameFilters;
+        page?: number | string | null;
+        pageSize?: number | string;
+    } = {},
+): Promise<PaginatedGamesResult> {
+    const filters = options.filters ?? {};
+    const pageSize = normalizePageSize(options.pageSize ?? DEFAULT_PAGE_SIZE);
+    const totalCount = await getTotalGamesCount(db, filters);
+    const totalPages = getTotalPages(totalCount, pageSize);
+    const page = Math.min(normalizePage(options.page ?? 1), totalPages);
+    const offset = (page - 1) * pageSize;
+    const condition = getGamesFilterCondition(filters);
+    const rows = condition
+        ? await baseGamesQuery(db)
+              .where(condition)
+              .orderBy(sql`lower(${games.title})`, asc(games.id))
+              .limit(pageSize)
+              .offset(offset)
+        : await baseGamesQuery(db)
+              .orderBy(sql`lower(${games.title})`, asc(games.id))
+              .limit(pageSize)
+              .offset(offset);
+
+    return {
+        items: rows.map(mapGame),
+        page,
+        pageSize,
+        totalCount,
+        totalPages,
+        hasPreviousPage: page > 1,
+        hasNextPage: page < totalPages,
+    };
 }
 
 /**
@@ -194,7 +280,7 @@ export async function getCatalogSummary(db: Database): Promise<CatalogSummary> {
  * @returns Ordered list of game IDs.
  */
 export async function getAllGameIds(db: Database): Promise<number[]> {
-    const rows = await db.select({ id: games.id }).from(games).orderBy(asc(games.title));
+    const rows = await db.select({ id: games.id }).from(games).orderBy(sql`lower(${games.title})`, asc(games.id));
     return rows.map((row) => row.id);
 }
 
@@ -253,6 +339,6 @@ export async function getPublisherById(db: Database, id: number): Promise<Publis
 export async function getGamesByPublisherId(db: Database, publisherId: number): Promise<Game[]> {
     const rows = await baseGamesQuery(db)
         .where(eq(games.publisherId, publisherId))
-        .orderBy(asc(games.title));
+        .orderBy(sql`lower(${games.title})`, asc(games.id));
     return rows.map(mapGame);
 }

@@ -1,0 +1,26 @@
+---
+import type { GetStaticPaths } from 'astro';
+import GameCard from '../../../components/GameCard.astro';
+import { getDatabase } from '../../../lib/db';
+import { getAllGameIds, getGameById } from '../../../lib/games';
+import type { Game } from '../../../types/game';
+
+interface Props {
+  game: Game;
+}
+
+export const prerender = true;
+export const partial = true;
+
+export const getStaticPaths = (async () => {
+  const db = getDatabase();
+  const ids = await getAllGameIds(db);
+  const games = await Promise.all(ids.map((id) => getGameById(db, id)));
+
+  return games.flatMap((game) => game === null ? [] : [{ params: { id: String(game.id) }, props: { game } }]);
+}) satisfies GetStaticPaths;
+
+const { game } = Astro.props;
+---
+
+<GameCard game={game} />

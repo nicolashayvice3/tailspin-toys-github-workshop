@@ -6,13 +6,12 @@ interface SortableGame {
     starRating: number | null;
 }
 
-const titleCollator = new Intl.Collator('en', {
-    sensitivity: 'base',
-    numeric: true,
-});
-
 function compareTitles(a: SortableGame, b: SortableGame, direction: 'asc' | 'desc'): number {
-    const titleComparison = titleCollator.compare(a.title, b.title);
+    const normalizedTitleA = a.title.toLocaleLowerCase();
+    const normalizedTitleB = b.title.toLocaleLowerCase();
+    const titleComparison =
+        normalizedTitleA < normalizedTitleB ? -1 : normalizedTitleA > normalizedTitleB ? 1 : 0;
+
     if (titleComparison !== 0) {
         return direction === 'asc' ? titleComparison : -titleComparison;
     }
@@ -23,7 +22,7 @@ function compareTitles(a: SortableGame, b: SortableGame, direction: 'asc' | 'des
 /**
  * Returns a new list sorted by title or rating without mutating the source list.
  * Rating order places null ratings after rated games; zero is a valid rating.
- * Equal values use case-insensitive numeric title order, then ID, as a stable tie-break.
+ * Equal values use the same case-insensitive ASCII title order and ID tie-break as SQLite pagination queries.
  * @param games - Games or game-like records to sort.
  * @param sort - Requested title or rating ordering.
  * @returns A newly ordered list.
