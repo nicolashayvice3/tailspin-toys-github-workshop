@@ -120,10 +120,10 @@ const catalogSummary = await getCatalogSummary(getDatabase());
         <>
           <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6" data-testid="games-grid">
             {games.map((game) => (
-              <GameCard game={game} categoryId={game.category?.id ?? null} publisherId={game.publisher?.id ?? null} />
+              <GameCard game={game} />
             ))}
           </div>
-          <div class="rounded-xl border border-slate-700 bg-slate-800/60 p-8 text-center text-slate-200" data-testid="filter-empty-state">
+          <div class="rounded-xl border border-slate-700 bg-slate-800/60 p-8 text-center text-slate-200" data-testid="filter-empty-state" hidden>
             No games match the selected filters.
           </div>
         </>

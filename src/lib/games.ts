@@ -3,6 +3,9 @@ import type { Database } from './db';
 import { games, categories, publishers } from '../../db/schema';
 import type { Game, Publisher } from '../types/game';
 
+/**
+ * Filters applied to the home catalog before rendering the visible game list.
+ */
 export interface GameFilters {
     categoryIds?: number[];
     publisherIds?: number[];
@@ -39,6 +42,12 @@ function normalizeDescription(description: string | null): string | null {
     return trimmedDescription || null;
 }
 
+/**
+ * Normalizes and validates positive integer filter IDs so empty selections do not silently broaden results.
+ * @param ids - Raw category or publisher IDs supplied by the caller.
+ * @returns Unique positive integers in insertion order.
+ * @throws TypeError when any supplied filter contains a malformed or non-positive value.
+ */
 function normalizeFilterIds(ids: number[] | null | undefined): number[] {
     if (!ids || ids.length === 0) {
         return [];
@@ -48,7 +57,7 @@ function normalizeFilterIds(ids: number[] | null | undefined): number[] {
     for (const id of ids) {
         const normalized = Number(id);
         if (!Number.isInteger(normalized) || normalized <= 0) {
-            continue;
+            throw new TypeError('Filter IDs must be positive integers.');
         }
         uniqueIds.add(normalized);
     }
@@ -95,6 +104,11 @@ function baseGamesQuery(db: Database) {
         .leftJoin(publishers, eq(games.publisherId, publishers.id));
 }
 
+/**
+ * Returns every category in alphabetical order so the homepage filter controls stay deterministic.
+ * @param db - Database connection used for the query.
+ * @returns The ordered category rows, or an empty array when no categories exist.
+ */
 export async function getAllCategories(db: Database): Promise<Array<{ id: number; name: string }>> {
     return db
         .select({ id: categories.id, name: categories.name })
@@ -102,6 +116,11 @@ export async function getAllCategories(db: Database): Promise<Array<{ id: number
         .orderBy(asc(categories.name));
 }
 
+/**
+ * Returns every publisher in alphabetical order so the homepage filter controls stay deterministic.
+ * @param db - Database connection used for the query.
+ * @returns The ordered publisher rows, or an empty array when no publishers exist.
+ */
 export async function getAllPublishers(db: Database): Promise<Array<{ id: number; name: string }>> {
     return db
         .select({ id: publishers.id, name: publishers.name })
@@ -112,8 +131,9 @@ export async function getAllPublishers(db: Database): Promise<Array<{ id: number
 /**
  * Returns all games sorted by title, with optional category and publisher filters.
  * Categories are combined with OR semantics and the final category/publisher filter set is ANDed together.
+ * Malformed positive-integer filters throw a TypeError instead of silently broadening the result set.
  * @param db - Database connection used for the query.
- * @param filters - Optional filter IDs for category and publisher selection.
+ * @param filters - Optional category and publisher IDs used for narrowing the catalog.
  * @returns Games matching the requested filters, ordered alphabetically by title.
  */
 export async function getAllGames(db: Database, filters: GameFilters = {}): Promise<Game[]> {

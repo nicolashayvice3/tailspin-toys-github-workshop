@@ -3,8 +3,10 @@ import { createTestDatabase } from '../../db/test-helpers';
 import { categories, publishers, games } from '../../db/schema';
 import type { Database } from './db';
 import {
+    getAllCategories,
     getAllGames,
     getAllGameIds,
+    getAllPublishers,
     getAllPublisherIds,
     getCatalogSummary,
     getGameById,
@@ -103,6 +105,7 @@ describe('games data-access helpers', () => {
         db = await createTestDatabase();
     });
 
+    // The base catalog query should stay stable even with no explicit filters applied.
     it('returns all games ordered by title', async () => {
         await seedGames(db, 3);
         const all = await getAllGames(db);
@@ -119,6 +122,7 @@ describe('games data-access helpers', () => {
         });
     });
 
+    // Related descriptions should be normalized consistently even when the underlying text is blank.
     it('normalizes missing and whitespace-only related descriptions to null', async () => {
         const [category] = await db
             .insert(categories)
@@ -140,6 +144,27 @@ describe('games data-access helpers', () => {
         const game = await getGameById(db, 1);
         expect(game?.category).toEqual({ id: category.id, name: 'Puzzle', description: null });
         expect(game?.publisher).toEqual({ id: publisher.id, name: 'Skyforge', description: null });
+    });
+
+    // Category and publisher lookup tables should stay sorted and behave predictably when empty.
+    it('returns all categories and publishers in name order, including empty tables', async () => {
+        await db.insert(categories).values([
+            { name: 'Puzzle', description: 'puzzle' },
+            { name: 'Adventure', description: 'adventure' },
+            { name: 'Strategy', description: 'strategy' },
+        ]);
+        await db.insert(publishers).values([
+            { name: 'GitHub Games', description: 'github' },
+            { name: 'CodeForge', description: 'codeforge' },
+            { name: 'DevMasters', description: 'devmasters' },
+        ]);
+
+        expect((await getAllCategories(db)).map((entry) => entry.name)).toEqual(['Adventure', 'Puzzle', 'Strategy']);
+        expect((await getAllPublishers(db)).map((entry) => entry.name)).toEqual(['CodeForge', 'DevMasters', 'GitHub Games']);
+
+        const emptyDb = await createTestDatabase();
+        expect(await getAllCategories(emptyDb)).toEqual([]);
+        expect(await getAllPublishers(emptyDb)).toEqual([]);
     });
 
     it('returns all game ids ordered by title', async () => {
@@ -380,6 +405,22 @@ describe('games data-access helpers', () => {
         expect(await getGamesByPublisherId(db, 99999)).toEqual([]);
     });
 
+    // Empty filter arrays and duplicate IDs should behave like the unfiltered catalog instead of widening the result set.
+    it('keeps the catalog intact when filters are omitted, empty, or duplicated', async () => {
+        const { strategyId, puzzleId, codeforgeId } = await seedFilteredGames(db);
+
+        expect(await getAllGames(db)).toHaveLength(4);
+        expect(await getAllGames(db, { categoryIds: [], publisherIds: [] })).toHaveLength(4);
+        expect(
+            (await getAllGames(db, { categoryIds: [strategyId, puzzleId], publisherIds: [codeforgeId, codeforgeId] })).map(
+                (game) => game.title,
+            ),
+        ).toEqual(['Alpha Strategy', 'Charlie Puzzle']);
+        expect(
+            (await getAllGames(db, { categoryIds: [puzzleId, puzzleId], publisherIds: [] })).map((game) => game.title),
+        ).toEqual(['Charlie Puzzle', 'Delta Puzzle']);
+    });
+
     it('filters games by category when a category id is supplied', async () => {
         const { strategyId } = await seedFilteredGames(db);
         const filtered = await getAllGames(db, { categoryIds: [strategyId] });
@@ -414,7 +455,25 @@ describe('games data-access helpers', () => {
         expect(filtered).toEqual([]);
     });
 
-    it('ignores invalid filter ids while keeping null-related metadata safe', async () => {
+    it('rejects malformed filter values instead of silently broadening the catalog', async () => {
+        const { strategyId } = await seedFilteredGames(db);
+
+        await expect(
+            getAllGames(db, {
+                categoryIds: [0, strategyId, Number.NaN, -1],
+                publisherIds: [Number.NaN],
+            }),
+        ).rejects.toThrow(TypeError);
+
+        await expect(
+            getAllGames(db, {
+                categoryIds: [Number.POSITIVE_INFINITY],
+                publisherIds: [1],
+            }),
+        ).rejects.toThrow(/positive integers/i);
+    });
+
+    it('keeps null related descriptions safe while leaving valid relations intact', async () => {
         const [category] = await db
             .insert(categories)
             .values({ name: 'Puzzle', description: null })
@@ -433,8 +492,8 @@ describe('games data-access helpers', () => {
         });
 
         const filtered = await getAllGames(db, {
-            categoryIds: [0, category.id, Number.NaN, -1],
-            publisherIds: [0, publisher.id, 999],
+            categoryIds: [category.id],
+            publisherIds: [publisher.id],
         });
 
         expect(filtered.map((game) => game.title)).toEqual(['Null-safe Puzzle']);
