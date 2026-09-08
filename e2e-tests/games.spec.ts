@@ -25,32 +25,50 @@ test.describe('Game Listing and Navigation', () => {
   });
 
   test('should navigate to a publisher page from the game details view', async ({ page }) => {
+    let publisherName: string | null = null;
+
     await test.step('Navigate to a game details page and locate the publisher link', async () => {
       await page.goto('/game/1');
       const publisherLink = page.getByTestId('game-details-publisher').first();
       await expect(publisherLink).toBeVisible();
       await expect(publisherLink).toHaveAttribute('href', /\/publisher\/\d+/);
+      publisherName = (await publisherLink.textContent())?.trim() ?? null;
+      expect(publisherName).toBeTruthy();
       const linkHref = await publisherLink.getAttribute('href');
       expect(linkHref).not.toBeNull();
       await publisherLink.click();
       await expect(page).toHaveURL(linkHref!);
     });
 
-    await test.step('Verify publisher page details and games are shown', async () => {
+    await test.step('Verify the publisher page heading and description match the selected publisher', async () => {
       await expect(page.getByTestId('publisher-page')).toBeVisible();
-      await expect(page.getByTestId('publisher-games-grid')).toBeVisible();
-      const gamesOnPublisherPage = page.getByTestId('game-card');
-      await expect(gamesOnPublisherPage.first()).toBeVisible();
-      await expect(gamesOnPublisherPage.first().getByTestId('game-title')).not.toBeEmpty();
+      await expect(page.getByTestId('page-hero-title')).toHaveText(publisherName!);
+      await expect(page.getByTestId('publisher-description')).toContainText(
+        'CodeForge Studios is a game publisher seeking funding for exciting new titles',
+      );
+    });
+
+    await test.step('Verify every rendered game card belongs to the selected publisher', async () => {
+      const gamesGrid = page.getByTestId('publisher-games-grid');
+      await expect(gamesGrid).toBeVisible();
+      const gameCards = gamesGrid.getByTestId('game-card');
+      const cardCount = await gameCards.count();
+      expect(cardCount).toBeGreaterThan(1);
+      for (let i = 0; i < cardCount; i++) {
+        await expect(gameCards.nth(i).getByTestId('game-publisher')).toHaveText(publisherName!);
+      }
     });
   });
 
   test('should show a branded 404 for a missing publisher route', async ({ page }) => {
+    let response: Response | null;
+
     await test.step('Navigate to a non-existent publisher route', async () => {
-      await page.goto('/publisher/99999');
+      response = await page.goto('/publisher/99999');
     });
 
-    await test.step('Verify the missing publisher route renders the 404 page', async () => {
+    await test.step('Verify the missing publisher route returns HTTP 404 and renders the branded page', async () => {
+      expect(response?.status()).toBe(404);
       await expect(page).toHaveTitle(/Page Not Found - Tailspin Toys/);
       await expect(page.getByTestId('not-found')).toBeVisible();
       await expect(page.getByTestId('not-found-heading')).toHaveText('Page not found');
