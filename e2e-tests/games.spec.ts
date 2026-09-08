@@ -71,6 +71,25 @@ test.describe('Game Listing and Navigation', () => {
       await expect(gameDescription).not.toBeEmpty();
     });
 
+    await test.step('Verify category and publisher descriptions render when available', async () => {
+      const categoryDescription = page.getByTestId('game-details-category-description');
+      const publisherDescription = page.getByTestId('game-details-publisher-description');
+      const categoryTag = page.getByTestId('game-details-category');
+      const publisherTag = page.getByTestId('game-details-publisher');
+
+      const hasCategoryDescription = await categoryDescription.count();
+      const hasPublisherDescription = await publisherDescription.count();
+
+      expect(hasCategoryDescription).toBe(1);
+      expect(hasPublisherDescription).toBe(1);
+      await expect(categoryDescription).toContainText('Collection of Strategy games available for crowdfunding');
+      await expect(publisherDescription).toContainText(
+        'CodeForge Studios is a game publisher seeking funding for exciting new titles',
+      );
+      await expect(categoryTag).toBeVisible();
+      await expect(publisherTag).toBeVisible();
+    });
+
     await test.step('Verify publisher or category information is present', async () => {
       const publisherExists = await page.getByTestId('game-details-publisher').isVisible();
       const categoryExists = await page.getByTestId('game-details-category').isVisible();

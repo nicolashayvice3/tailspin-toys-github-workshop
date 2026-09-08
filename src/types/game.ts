@@ -8,12 +8,14 @@
 export interface Publisher {
     id: number;
     name: string;
+    description: string | null;
 }
 
 /** Represents a game category (summary form used in listings). */
 export interface Category {
     id: number;
     name: string;
+    description: string | null;
 }
 
 /** Represents a game with its related category and publisher. */

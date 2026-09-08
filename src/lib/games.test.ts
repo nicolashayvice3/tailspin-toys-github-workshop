@@ -41,8 +41,39 @@ describe('games data-access helpers', () => {
         await seedGames(db, 3);
         const all = await getAllGames(db);
         expect(all.map((g) => g.title)).toEqual(['Game 01', 'Game 02', 'Game 03']);
-        expect(all[0].category).toEqual({ id: expect.any(Number), name: 'Strategy' });
-        expect(all[0].publisher).toEqual({ id: expect.any(Number), name: 'Pub One' });
+        expect(all[0].category).toEqual({
+            id: expect.any(Number),
+            name: 'Strategy',
+            description: 'cat',
+        });
+        expect(all[0].publisher).toEqual({
+            id: expect.any(Number),
+            name: 'Pub One',
+            description: 'pub',
+        });
+    });
+
+    it('normalizes missing and whitespace-only related descriptions to null', async () => {
+        const [category] = await db
+            .insert(categories)
+            .values({ name: 'Puzzle', description: '   ' })
+            .returning({ id: categories.id });
+        const [publisher] = await db
+            .insert(publishers)
+            .values({ name: 'Skyforge', description: null })
+            .returning({ id: publishers.id });
+
+        await db.insert(games).values({
+            title: 'Night Shift',
+            description: 'Late-night puzzler',
+            starRating: 4.5,
+            categoryId: category.id,
+            publisherId: publisher.id,
+        });
+
+        const game = await getGameById(db, 1);
+        expect(game?.category).toEqual({ id: category.id, name: 'Puzzle', description: null });
+        expect(game?.publisher).toEqual({ id: publisher.id, name: 'Skyforge', description: null });
     });
 
     it('returns all game ids ordered by title', async () => {

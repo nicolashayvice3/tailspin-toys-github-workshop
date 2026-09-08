@@ -10,8 +10,10 @@ const gameSelection = {
     starRating: games.starRating,
     categoryId: categories.id,
     categoryName: categories.name,
+    categoryDescription: categories.description,
     publisherId: publishers.id,
     publisherName: publishers.name,
+    publisherDescription: publishers.description,
 };
 
 type GameSelectionRow = {
@@ -21,9 +23,16 @@ type GameSelectionRow = {
     starRating: number | null;
     categoryId: number | null;
     categoryName: string | null;
+    categoryDescription: string | null;
     publisherId: number | null;
     publisherName: string | null;
+    publisherDescription: string | null;
 };
+
+function normalizeDescription(description: string | null): string | null {
+    const trimmedDescription = description?.trim();
+    return trimmedDescription || null;
+}
 
 function mapGame(row: GameSelectionRow): Game {
     return {
@@ -33,11 +42,19 @@ function mapGame(row: GameSelectionRow): Game {
         starRating: row.starRating,
         category:
             row.categoryId !== null && row.categoryName !== null
-                ? { id: row.categoryId, name: row.categoryName }
+                ? {
+                      id: row.categoryId,
+                      name: row.categoryName,
+                      description: normalizeDescription(row.categoryDescription),
+                  }
                 : null,
         publisher:
             row.publisherId !== null && row.publisherName !== null
-                ? { id: row.publisherId, name: row.publisherName }
+                ? {
+                      id: row.publisherId,
+                      name: row.publisherName,
+                      description: normalizeDescription(row.publisherDescription),
+                  }
                 : null,
     };
 }
@@ -50,19 +67,32 @@ function baseGamesQuery(db: Database) {
         .leftJoin(publishers, eq(games.publisherId, publishers.id));
 }
 
-/** All games ordered by title. */
+/**
+ * Returns all games with their related category and publisher metadata sorted by title.
+ * @param db - Database connection used for the query.
+ * @returns Ordered game records with nullable related descriptions normalized to null.
+ */
 export async function getAllGames(db: Database): Promise<Game[]> {
     const rows = await baseGamesQuery(db).orderBy(asc(games.title));
     return rows.map(mapGame);
 }
 
-/** All game ids ordered by title. */
+/**
+ * Returns all game IDs sorted by title so static page generation is deterministic.
+ * @param db - Database connection used for the query.
+ * @returns Ordered list of game IDs.
+ */
 export async function getAllGameIds(db: Database): Promise<number[]> {
     const rows = await db.select({ id: games.id }).from(games).orderBy(asc(games.title));
     return rows.map((row) => row.id);
 }
 
-/** A single game by id, or null when it does not exist. */
+/**
+ * Returns one game with its related category and publisher metadata.
+ * @param db - Database connection used for the query.
+ * @param id - Game ID to look up.
+ * @returns The matching game, or null when no game exists for the ID.
+ */
 export async function getGameById(db: Database, id: number): Promise<Game | null> {
     const row = await baseGamesQuery(db).where(eq(games.id, id)).get();
     return row ? mapGame(row) : null;
