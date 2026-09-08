@@ -5,7 +5,10 @@ import type { Database } from './db';
 import {
     getAllGames,
     getAllGameIds,
+    getAllPublisherIds,
     getGameById,
+    getGamesByPublisherId,
+    getPublisherById,
 } from './games';
 
 async function seedGames(db: Database, count: number): Promise<void> {
@@ -18,7 +21,6 @@ async function seedGames(db: Database, count: number): Promise<void> {
         .values({ name: 'Pub One', description: 'pub' })
         .returning({ id: publishers.id });
 
-    // Insert titles in reverse-alphabetical order to prove ordering is applied.
     for (let i = count; i >= 1; i--) {
         await db.insert(games).values({
             title: `Game ${String(i).padStart(2, '0')}`,
@@ -93,5 +95,39 @@ describe('games data-access helpers', () => {
     it('returns null for a non-existent game', async () => {
         await seedGames(db, 2);
         expect(await getGameById(db, 99999)).toBeNull();
+    });
+
+    it('returns all publishers and their games in deterministic order', async () => {
+        await seedGames(db, 3);
+        const publisherIds = await getAllPublisherIds(db);
+        const publisher = await getPublisherById(db, publisherIds[0]);
+        const publisherGames = await getGamesByPublisherId(db, publisherIds[0]);
+
+        expect(publisherIds).toEqual([publisherIds[0]]);
+        expect(publisher).toEqual({
+            id: publisherIds[0],
+            name: 'Pub One',
+            description: 'pub',
+        });
+        expect(publisherGames.map((game) => game.title)).toEqual(['Game 01', 'Game 02', 'Game 03']);
+    });
+
+    it('returns null for a non-existent publisher', async () => {
+        await seedGames(db, 2);
+        expect(await getPublisherById(db, 99999)).toBeNull();
+    });
+
+    it('returns empty collections for publishers with no games or descriptions', async () => {
+        const [publisher] = await db
+            .insert(publishers)
+            .values({ name: 'Quiet Studio', description: '   ' })
+            .returning({ id: publishers.id });
+
+        const publisherId = publisher.id;
+        const fetchedPublisher = await getPublisherById(db, publisherId);
+        const publisherGames = await getGamesByPublisherId(db, publisherId);
+
+        expect(fetchedPublisher).toEqual({ id: publisherId, name: 'Quiet Studio', description: null });
+        expect(publisherGames).toEqual([]);
     });
 });

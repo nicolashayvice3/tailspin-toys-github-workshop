@@ -1,7 +1,7 @@
 import { eq, asc } from 'drizzle-orm';
 import type { Database } from './db';
 import { games, categories, publishers } from '../../db/schema';
-import type { Game } from '../types/game';
+import type { Game, Publisher } from '../types/game';
 
 const gameSelection = {
     id: games.id,
@@ -88,6 +88,19 @@ export async function getAllGameIds(db: Database): Promise<number[]> {
 }
 
 /**
+ * Returns all publisher IDs sorted by name so static publisher paths stay deterministic.
+ * @param db - Database connection used for the query.
+ * @returns Ordered list of publisher IDs.
+ */
+export async function getAllPublisherIds(db: Database): Promise<number[]> {
+    const rows = await db
+        .select({ id: publishers.id })
+        .from(publishers)
+        .orderBy(asc(publishers.name));
+    return rows.map((row) => row.id);
+}
+
+/**
  * Returns one game with its related category and publisher metadata.
  * @param db - Database connection used for the query.
  * @param id - Game ID to look up.
@@ -96,4 +109,39 @@ export async function getAllGameIds(db: Database): Promise<number[]> {
 export async function getGameById(db: Database, id: number): Promise<Game | null> {
     const row = await baseGamesQuery(db).where(eq(games.id, id)).get();
     return row ? mapGame(row) : null;
+}
+
+/**
+ * Returns one publisher record by ID.
+ * @param db - Database connection used for the query.
+ * @param id - Publisher ID to look up.
+ * @returns The matching publisher, or null when no publisher exists for the ID.
+ */
+export async function getPublisherById(db: Database, id: number): Promise<Publisher | null> {
+    const row = await db
+        .select({ id: publishers.id, name: publishers.name, description: publishers.description })
+        .from(publishers)
+        .where(eq(publishers.id, id))
+        .get();
+
+    return row
+        ? {
+              id: row.id,
+              name: row.name,
+              description: normalizeDescription(row.description),
+          }
+        : null;
+}
+
+/**
+ * Returns all games for a publisher sorted by title.
+ * @param db - Database connection used for the query.
+ * @param publisherId - Publisher ID used to filter the results.
+ * @returns Ordered list of games published by the requested publisher.
+ */
+export async function getGamesByPublisherId(db: Database, publisherId: number): Promise<Game[]> {
+    const rows = await baseGamesQuery(db)
+        .where(eq(games.publisherId, publisherId))
+        .orderBy(asc(games.title));
+    return rows.map(mapGame);
 }

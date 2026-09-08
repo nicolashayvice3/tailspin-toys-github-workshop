@@ -24,6 +24,39 @@ test.describe('Game Listing and Navigation', () => {
     });
   });
 
+  test('should navigate to a publisher page from the game details view', async ({ page }) => {
+    await test.step('Navigate to a game details page and locate the publisher link', async () => {
+      await page.goto('/game/1');
+      const publisherLink = page.getByTestId('game-details-publisher').first();
+      await expect(publisherLink).toBeVisible();
+      await expect(publisherLink).toHaveAttribute('href', /\/publisher\/\d+/);
+      const linkHref = await publisherLink.getAttribute('href');
+      expect(linkHref).not.toBeNull();
+      await publisherLink.click();
+      await expect(page).toHaveURL(linkHref!);
+    });
+
+    await test.step('Verify publisher page details and games are shown', async () => {
+      await expect(page.getByTestId('publisher-page')).toBeVisible();
+      await expect(page.getByTestId('publisher-games-grid')).toBeVisible();
+      const gamesOnPublisherPage = page.getByTestId('game-card');
+      await expect(gamesOnPublisherPage.first()).toBeVisible();
+      await expect(gamesOnPublisherPage.first().getByTestId('game-title')).not.toBeEmpty();
+    });
+  });
+
+  test('should show a branded 404 for a missing publisher route', async ({ page }) => {
+    await test.step('Navigate to a non-existent publisher route', async () => {
+      await page.goto('/publisher/99999');
+    });
+
+    await test.step('Verify the missing publisher route renders the 404 page', async () => {
+      await expect(page).toHaveTitle(/Page Not Found - Tailspin Toys/);
+      await expect(page.getByTestId('not-found')).toBeVisible();
+      await expect(page.getByTestId('not-found-heading')).toHaveText('Page not found');
+    });
+  });
+
   test('should navigate to correct game details page when clicking on a game', async ({ page }) => {
     let gameId: string | null;
     let gameTitle: string | null;
