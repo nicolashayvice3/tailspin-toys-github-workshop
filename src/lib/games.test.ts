@@ -6,6 +6,7 @@ import {
     getAllGames,
     getAllGameIds,
     getAllPublisherIds,
+    getCatalogSummary,
     getGameById,
     getGamesByPublisherId,
     getPublisherById,
@@ -98,12 +99,103 @@ describe('games data-access helpers', () => {
         expect(await getGameById(db, 99999)).toBeNull();
     });
 
+    it('returns the catalog summary using only rated games for the average', async () => {
+        const [category] = await db
+            .insert(categories)
+            .values({ name: 'Strategy', description: 'cat' })
+            .returning({ id: categories.id });
+        const [publisher] = await db
+            .insert(publishers)
+            .values({ name: 'Pub One', description: 'pub' })
+            .returning({ id: publishers.id });
+
+        await db.insert(games).values([
+            {
+                title: 'Rated Five',
+                description: 'Five stars',
+                starRating: 5,
+                categoryId: category.id,
+                publisherId: publisher.id,
+            },
+            {
+                title: 'Unrated',
+                description: 'No rating',
+                starRating: null,
+                categoryId: category.id,
+                publisherId: publisher.id,
+            },
+            {
+                title: 'Rated Zero',
+                description: 'Zero stars',
+                starRating: 0,
+                categoryId: category.id,
+                publisherId: publisher.id,
+            },
+            {
+                title: 'Rated Three',
+                description: 'Three stars',
+                starRating: 3,
+                categoryId: category.id,
+                publisherId: publisher.id,
+            },
+        ]);
+
+        expect(await getCatalogSummary(db)).toEqual({
+            totalGames: 4,
+            ratedGamesCount: 3,
+            averageStarRating: 8 / 3,
+        });
+    });
+
+    it('returns a zeroed summary when the catalog is empty', async () => {
+        const summary = await getCatalogSummary(db);
+
+        expect(summary).toEqual({
+            totalGames: 0,
+            ratedGamesCount: 0,
+            averageStarRating: null,
+        });
+    });
+
+    it('returns a null average when no games are rated', async () => {
+        const [category] = await db
+            .insert(categories)
+            .values({ name: 'Strategy', description: 'cat' })
+            .returning({ id: categories.id });
+        const [publisher] = await db
+            .insert(publishers)
+            .values({ name: 'Pub One', description: 'pub' })
+            .returning({ id: publishers.id });
+
+        await db.insert(games).values([
+            {
+                title: 'First Unrated Game',
+                description: 'No rating yet',
+                starRating: null,
+                categoryId: category.id,
+                publisherId: publisher.id,
+            },
+            {
+                title: 'Second Unrated Game',
+                description: 'Still no rating',
+                starRating: null,
+                categoryId: category.id,
+                publisherId: publisher.id,
+            },
+        ]);
+
+        expect(await getCatalogSummary(db)).toEqual({
+            totalGames: 2,
+            ratedGamesCount: 0,
+            averageStarRating: null,
+        });
+    });
+
     it('orders publisher IDs by name independent of insertion order, including an empty publisher', async () => {
         const [category] = await db
             .insert(categories)
             .values({ name: 'Strategy', description: 'cat' })
             .returning({ id: categories.id });
-
         // Insert publishers out of alphabetical order to prove getAllPublisherIds sorts by
         // name rather than by id/insertion order.
         const [zenith] = await db

@@ -4,11 +4,12 @@ import GameCard from '../components/GameCard.astro';
 import PageHero from '../components/PageHero.astro';
 import EmptyState from '../components/EmptyState.astro';
 import { getDatabase } from '../lib/db';
-import { getAllGames } from '../lib/games';
+import { getAllGames, getCatalogSummary } from '../lib/games';
 
 export const prerender = true;
 
 const games = await getAllGames(getDatabase());
+const catalogSummary = await getCatalogSummary(getDatabase());
 ---
 
 <Layout title="Tailspin Toys - Crowdfunding your new favorite game!">
@@ -17,6 +18,39 @@ const games = await getAllGames(getDatabase());
       title="Welcome to Tailspin Toys"
       subtitle="Find your next game! And maybe even back one! Explore our collection!"
     />
+
+    <section
+      class="mb-8 rounded-2xl border border-slate-700 bg-slate-800/80 p-6 shadow-lg"
+      data-testid="catalog-summary"
+      aria-labelledby="catalog-summary-title"
+    >
+      <div class="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
+        <div>
+          <p class="text-xs font-medium uppercase tracking-[0.18em] text-sky-300">Catalog overview</p>
+          <h2 id="catalog-summary-title" class="mt-2 text-2xl font-semibold text-slate-100" data-testid="catalog-summary-title">
+            Catalog summary
+          </h2>
+        </div>
+
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div class="rounded-xl border border-slate-700 bg-slate-900/60 p-4" data-testid="catalog-summary-total">
+            <p class="text-xs font-medium uppercase tracking-[0.2em] text-slate-400">Total games</p>
+            <p class="mt-3 text-3xl font-bold text-slate-100">{catalogSummary.totalGames}</p>
+            <p class="mt-1 text-sm text-slate-300">games in the catalog</p>
+          </div>
+
+          <div class="rounded-xl border border-slate-700 bg-slate-900/60 p-4" data-testid="catalog-summary-average">
+            <p class="text-xs font-medium uppercase tracking-[0.2em] text-slate-400">Average rating</p>
+            <p class="mt-3 text-3xl font-bold text-slate-100">
+              {catalogSummary.averageStarRating === null ? '—' : catalogSummary.averageStarRating.toFixed(1)}
+            </p>
+            <p class="mt-1 text-sm text-slate-300">
+              {catalogSummary.averageStarRating === null ? 'No rated games yet' : 'out of 5 stars'}
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
 
     <div>
       <h2 class="text-2xl font-medium mb-6 text-slate-100">Featured Games</h2>
