@@ -12,6 +12,17 @@ Tailspin Toys is a crowdfunding platform for games with a developer theme. The p
 
 The database is migrated and seeded automatically before `dev`/`build` (via the `predev`/`prebuild` npm scripts) and is written to the gitignored `tailspin.db` file.
 
+## Coding standards
+
+The repository expects concise, intent-focused documentation. Comments should explain the reasoning behind a decision, not repeat what the code already says, and stale comments should be removed or updated in the same change.
+
+- Comment on intent, trade-offs, invariants, and edge cases; avoid explanatory comments that merely paraphrase the code.
+- Exported functions in `db/` and `src/lib/` must include TSDoc/JSDoc describing purpose, parameters, and return values.
+- Reusable `.astro` components should define and document their `Props` interfaces so the API remains understandable.
+- TypeScript should remain explicit and lint-compliant. The repository does not use an opinionated formatter: preserve the surrounding style, use readable names, and keep one concern per function. ESLint applies the JavaScript, `typescript-eslint`, and Astro recommended rules plus the repository's `_`-prefix convention for intentionally unused values; it checks correctness rather than fully enforcing formatting.
+
+Detailed guidance lives in the repository instruction files under [`.github/instructions/`](.github/instructions/), especially [`astro.instructions.md`](.github/instructions/astro.instructions.md), [`drizzle.instructions.md`](.github/instructions/drizzle.instructions.md), and [`ui.instructions.md`](.github/instructions/ui.instructions.md).
+
 ## Using this template
 
 This repository is a GitHub template. When you create a new repository from it, a one-time **Bootstrap template issues** workflow (`.github/workflows/bootstrap-issues.yml`) runs automatically on the first push to `main` and opens a set of starter issues describing suggested first features. Each issue is defined by a Markdown file in `.github/bootstrap-issues/` — the first heading becomes the issue title and the remaining content becomes the body — so you can edit, add, or remove files there to control which issues are created.

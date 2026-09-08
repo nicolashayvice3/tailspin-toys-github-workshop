@@ -51,6 +51,20 @@ Refer to technology-specific instruction files:
 - Use props for configuration, not duplication
 - Document component APIs with TypeScript types
 
+### Documentation and Comments
+
+- Comment intent, not mechanics. Explain the reason for a decision, the business rule it enforces, or the trade-off it represents.
+- Do not add comments that merely restate the code below them. If the code is obvious, prefer no comment.
+- Update or remove outdated comments in the same change that touches the related logic.
+- Reserve comments for the non-obvious: invariants, edge cases, assumptions, and why a specific implementation was chosen.
+
+Example:
+
+```ts
+// Avoid: "Sort before rendering the catalog."
+// Prefer: "We sort alphabetically so the homepage remains stable across static builds and avoids noisy diffs from data ordering changes."
+```
+
 ## Development Workflow
 
 1. **Choose the right tool**: 
