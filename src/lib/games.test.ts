@@ -10,10 +10,11 @@ import {
     getAllPublisherIds,
     getCatalogSummary,
     getGameById,
+    getPaginatedGames,
     getGamesByPublisherId,
     getPublisherById,
 } from './games';
-import { sortGames, type GameSortOption } from './game-sort';
+import { sortGames, naturalTitleSortKey, type GameSortOption } from './game-sort';
 
 async function seedGames(db: Database, count: number): Promise<void> {
     const [category] = await db
@@ -123,7 +124,7 @@ describe('games data-access helpers', () => {
             expect(gameList.map((game) => game.id)).toEqual(originalIds);
         });
 
-        it('orders titles case-insensitively with numeric comparison and ID tie-breaking', () => {
+        it('orders titles by natural case-insensitive comparison with ID tie-breaking', () => {
             expect(sortGames(gameList, 'title-asc').map((game) => game.id)).toEqual([1, 3, 4, 2, 5]);
             expect(sortGames(gameList, 'title-desc').map((game) => game.id)).toEqual([5, 2, 4, 1, 3]);
         });
@@ -160,6 +161,177 @@ describe('games data-access helpers', () => {
         });
     });
 
+        it('returns a SQL-sliced page of games with bounded pagination metadata', async () => {
+            await seedGames(db, 21);
+
+            const firstPage = await getPaginatedGames(db, { page: 1, pageSize: 9 });
+            expect(firstPage.items).toHaveLength(9);
+            expect(firstPage.items.map((game) => game.title)).toEqual([
+                'Game 01',
+                'Game 02',
+                'Game 03',
+                'Game 04',
+                'Game 05',
+                'Game 06',
+                'Game 07',
+                'Game 08',
+                'Game 09',
+            ]);
+            expect(firstPage).toMatchObject({
+                page: 1,
+                pageSize: 9,
+                totalCount: 21,
+                totalPages: 3,
+                hasPreviousPage: false,
+                hasNextPage: true,
+            });
+
+            const lastPage = await getPaginatedGames(db, { page: 3, pageSize: 9 });
+            expect(lastPage.items.map((game) => game.title)).toEqual(['Game 19', 'Game 20', 'Game 21']);
+            expect(lastPage).toMatchObject({
+                page: 3,
+                totalCount: 21,
+                totalPages: 3,
+                hasPreviousPage: true,
+                hasNextPage: false,
+            });
+        });
+
+        it('clamps malformed, fractional, negative, and too-large requested pages consistently', async () => {
+            await seedGames(db, 12);
+
+            await expect(getPaginatedGames(db, { page: Number.NaN, pageSize: 5 })).resolves.toMatchObject({ page: 1 });
+            await expect(getPaginatedGames(db, { page: Number.POSITIVE_INFINITY, pageSize: 5 })).resolves.toMatchObject({ page: 1 });
+            await expect(getPaginatedGames(db, { page: -7, pageSize: 5 })).resolves.toMatchObject({ page: 1 });
+            await expect(getPaginatedGames(db, { page: 2.9, pageSize: 5 })).resolves.toMatchObject({ page: 2 });
+            await expect(getPaginatedGames(db, { page: 99, pageSize: 5 })).resolves.toMatchObject({ page: 3 });
+        });
+
+        it('rejects malformed page sizes explicitly', async () => {
+            await seedGames(db, 3);
+
+            await expect(getPaginatedGames(db, { pageSize: 0 })).rejects.toThrow(TypeError);
+            await expect(getPaginatedGames(db, { pageSize: 1.5 })).rejects.toThrow(/page size/i);
+            await expect(getPaginatedGames(db, { pageSize: Number.POSITIVE_INFINITY })).rejects.toThrow(/page size/i);
+            await expect(getPaginatedGames(db, { pageSize: 101 })).rejects.toThrow(/no greater than 100/i);
+        });
+
+        it('paginates filtered totals after applying category OR and publisher AND rules', async () => {
+            const { strategyId, puzzleId, codeforgeId } = await seedFilteredGames(db);
+
+            const firstPage = await getPaginatedGames(db, {
+                filters: { categoryIds: [strategyId, puzzleId], publisherIds: [codeforgeId] },
+                page: 1,
+                pageSize: 1,
+            });
+            const secondPage = await getPaginatedGames(db, {
+                filters: { categoryIds: [strategyId, puzzleId], publisherIds: [codeforgeId] },
+                page: 2,
+                pageSize: 1,
+            });
+
+            expect(firstPage.items.map((game) => game.title)).toEqual(['Alpha Strategy']);
+            expect(secondPage.items.map((game) => game.title)).toEqual(['Charlie Puzzle']);
+            expect(firstPage.totalCount).toBe(2);
+            expect(firstPage.totalPages).toBe(2);
+        });
+
+        it('keeps default SQL title ordering compatible with browser sorting boundaries', async () => {
+            const [category] = await db
+                .insert(categories)
+                .values({ name: 'Strategy', description: 'cat' })
+                .returning({ id: categories.id });
+            const [publisher] = await db
+                .insert(publishers)
+                .values({ name: 'Pub One', description: 'pub' })
+                .returning({ id: publishers.id });
+
+            await db.insert(games).values([
+                { title: 'Éclair 2', description: 'Accent two', starRating: null, categoryId: category.id, publisherId: publisher.id },
+                { title: 'eclair 10', description: 'Accent ten', starRating: 0, categoryId: category.id, publisherId: publisher.id },
+                { title: 'Zed', description: 'Zed upper', starRating: 4.5, categoryId: category.id, publisherId: publisher.id },
+                { title: 'éclair 1', description: 'Accent one', starRating: 4.5, categoryId: category.id, publisherId: publisher.id },
+                { title: 'ÉCLAIR 1', description: 'Accent one upper', starRating: 4.5, categoryId: category.id, publisherId: publisher.id },
+                { title: 'zed', description: 'Zed lower', starRating: 4.5, categoryId: category.id, publisherId: publisher.id },
+            ]);
+
+            const sqlOrdered = await getAllGames(db);
+            const browserOrdered = sortGames(sqlOrdered, 'title-asc');
+
+            expect(sqlOrdered.map((game) => game.id)).toEqual(browserOrdered.map((game) => game.id));
+            expect(sqlOrdered.map((game) => game.title)).toEqual([
+                'éclair 1',
+                'ÉCLAIR 1',
+                'Éclair 2',
+                'eclair 10',
+                'Zed',
+                'zed',
+            ]);
+        });
+
+        it('keeps SQL and browser title ordering aligned for supplementary-plane and non-Latin BMP characters', async () => {
+            const [category] = await db
+                .insert(categories)
+                .values({ name: 'Strategy', description: 'cat' })
+                .returning({ id: categories.id });
+            const [publisher] = await db
+                .insert(publishers)
+                .values({ name: 'Pub One', description: 'pub' })
+                .returning({ id: publishers.id });
+
+            // "😀" (U+1F600) is a supplementary-plane character represented in JavaScript as a
+            // UTF-16 surrogate pair. Comparing raw title strings would make UTF-16 code-unit
+            // order (used by the browser) diverge from UTF-8 byte order (SQLite's default
+            // BINARY collation) for exactly this kind of character. "Ж" (U+0416) is a non-Latin
+            // Basic Multilingual Plane character used as a control to prove ordinary BMP text
+            // still sorts consistently between the two engines.
+            await db.insert(games).values([
+                {
+                    title: '😀 Emoji Game',
+                    description: 'emoji',
+                    starRating: null,
+                    categoryId: category.id,
+                    publisherId: publisher.id,
+                },
+                {
+                    title: 'Ж Cyrillic Game',
+                    description: 'cyrillic',
+                    starRating: null,
+                    categoryId: category.id,
+                    publisherId: publisher.id,
+                },
+                {
+                    title: 'Zebra Game',
+                    description: 'latin',
+                    starRating: null,
+                    categoryId: category.id,
+                    publisherId: publisher.id,
+                },
+                {
+                    title: 'ascii game',
+                    description: 'latin lower',
+                    starRating: null,
+                    categoryId: category.id,
+                    publisherId: publisher.id,
+                },
+            ]);
+
+            const sqlOrdered = await getAllGames(db);
+            const browserOrdered = sortGames(sqlOrdered, 'title-asc');
+
+            expect(sqlOrdered.map((game) => game.id)).toEqual(browserOrdered.map((game) => game.id));
+            expect(sqlOrdered.map((game) => game.title)).toEqual([
+                'ascii game',
+                'Zebra Game',
+                'Ж Cyrillic Game',
+                '😀 Emoji Game',
+            ]);
+
+            for (const game of sqlOrdered) {
+                const key = naturalTitleSortKey(game.title);
+                expect([...key].every((character) => character.codePointAt(0) !== undefined && character.codePointAt(0)! <= 0x7f)).toBe(true);
+            }
+        });
     // Related descriptions should be normalized consistently even when the underlying text is blank.
     it('normalizes missing and whitespace-only related descriptions to null', async () => {
         const [category] = await db

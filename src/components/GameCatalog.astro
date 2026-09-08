@@ -1,0 +1,877 @@
+---
+import type { Game } from '../types/game';
+import type { PaginationMetadata } from '../lib/pagination';
+import GameCard from './GameCard.astro';
+import EmptyState from './EmptyState.astro';
+
+interface FilterOption {
+    id: number;
+    name: string;
+}
+
+interface CatalogSummary {
+    totalGames: number;
+    averageStarRating: number | null;
+}
+
+interface Props {
+    /** SQL-sliced games for the current static baseline page. */
+    games: Game[];
+    /** Categories available to the progressive-enhancement filter controls. */
+    categories: FilterOption[];
+    /** Publishers available to the progressive-enhancement filter controls. */
+    publishers: FilterOption[];
+    /** Whole-catalog summary that remains independent from visible pagination and filters. */
+    catalogSummary: CatalogSummary;
+    /** Pagination metadata for the static baseline result set. */
+    pagination: PaginationMetadata;
+}
+
+const { games, categories, publishers, catalogSummary, pagination } = Astro.props;
+
+function baselinePageHref(pageNumber: number): string {
+    return pageNumber === 1 ? '/' : `/games/page/${pageNumber}/`;
+}
+
+function resultsSummaryText(page: number, pageSize: number, totalCount: number): string {
+    if (totalCount === 0) {
+        return '0 games shown';
+    }
+
+    const start = (page - 1) * pageSize + 1;
+    const end = Math.min(page * pageSize, totalCount);
+    return `Showing ${start}-${end} of ${totalCount} ${totalCount === 1 ? 'game' : 'games'}`;
+}
+
+const pageLinks = Array.from({ length: pagination.totalPages }, (_, index) => index + 1);
+---
+
+<section
+  class="mb-8 rounded-2xl border border-slate-700 bg-slate-800/80 p-6 shadow-lg"
+  data-testid="catalog-summary"
+  aria-labelledby="catalog-summary-title"
+>
+  <div class="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
+    <div>
+      <p class="text-xs font-medium uppercase tracking-[0.18em] text-sky-300">Catalog overview</p>
+      <h2 id="catalog-summary-title" class="mt-2 text-2xl font-semibold text-slate-100" data-testid="catalog-summary-title">
+        Catalog summary
+      </h2>
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div class="rounded-xl border border-slate-700 bg-slate-900/60 p-4" data-testid="catalog-summary-total">
+        <p class="text-xs font-medium uppercase tracking-[0.2em] text-slate-400">Total games</p>
+        <p class="mt-3 text-3xl font-bold text-slate-100">{catalogSummary.totalGames}</p>
+        <p class="mt-1 text-sm text-slate-300">games in the catalog</p>
+      </div>
+
+      <div class="rounded-xl border border-slate-700 bg-slate-900/60 p-4" data-testid="catalog-summary-average">
+        <p class="text-xs font-medium uppercase tracking-[0.2em] text-slate-400">Average rating</p>
+        <p class="mt-3 text-3xl font-bold text-slate-100">
+          {catalogSummary.averageStarRating === null ? '—' : catalogSummary.averageStarRating.toFixed(1)}
+        </p>
+        <p class="mt-1 text-sm text-slate-300">
+          {catalogSummary.averageStarRating === null ? 'No rated games yet' : 'out of 5 stars'}
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div
+  class="mb-8 rounded-2xl border border-slate-700 bg-slate-800/70 p-5 shadow-lg"
+  data-testid="game-filters"
+>
+  <form
+    class="space-y-5"
+    data-testid="game-search-form"
+    aria-label="Filter games by title, category, or publisher"
+  >
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+      <div class="flex-1">
+        <label for="game-search" class="mb-2 block text-sm font-medium text-slate-200">
+          Search games by title
+        </label>
+        <input
+          id="game-search"
+          type="search"
+          name="query"
+          placeholder="Search by title..."
+          data-testid="game-search-input"
+          class="w-full rounded-lg border border-slate-600 bg-slate-900 px-4 py-3 text-slate-100 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+        />
+      </div>
+      <button
+        type="submit"
+        data-testid="game-search-submit"
+        class="rounded-lg bg-blue-600 px-4 py-3 font-medium text-white transition-colors hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+      >
+        Search
+      </button>
+    </div>
+
+    <div class="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+      <fieldset class="flex-1" data-testid="category-filter-group">
+        <legend class="mb-3 block text-sm font-medium text-slate-200">Categories</legend>
+        <div class="flex flex-wrap gap-2">
+          {categories.map((category) => (
+            <label
+              class="flex cursor-pointer items-center gap-2 rounded-full border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 transition-colors duration-200 hover:border-blue-500/60 focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 focus-within:ring-offset-slate-900"
+              for={`category-filter-${category.id}`}
+            >
+              <input
+                id={`category-filter-${category.id}`}
+                type="checkbox"
+                name="category"
+                value={category.id}
+                class="h-4 w-4 rounded border-slate-600 bg-slate-900 text-blue-500 accent-blue-500 focus:ring-2 focus:ring-blue-500"
+                data-testid={`category-filter-${category.id}`}
+              />
+              <span>{category.name}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      <div class="min-w-[220px]">
+        <label for="publisher-filter" class="mb-2 block text-sm font-medium text-slate-200">Publisher</label>
+        <select
+          id="publisher-filter"
+          name="publisher"
+          class="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-900"
+          data-testid="publisher-filter"
+          aria-label="Filter by publisher"
+        >
+          <option value="">All publishers</option>
+          {publishers.map((publisher) => (
+            <option value={publisher.id}>{publisher.name}</option>
+          ))}
+        </select>
+      </div>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-3">
+      <div class="flex items-center gap-3">
+        <label for="game-sort" class="text-sm font-medium text-slate-200">Sort by</label>
+        <select
+          id="game-sort"
+          name="sort"
+          data-testid="game-sort"
+          class="rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="title-asc">Title: A-Z</option>
+          <option value="title-desc">Title: Z-A</option>
+          <option value="rating-desc">Star rating (highest first)</option>
+        </select>
+      </div>
+      <button
+        type="button"
+        class="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-medium text-slate-100 transition-colors duration-200 hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-900"
+        data-testid="clear-filters-button"
+      >
+        Clear filters
+      </button>
+      <p class="text-sm text-slate-400" data-testid="results-summary" role="status" aria-live="polite">
+        {resultsSummaryText(pagination.page, pagination.pageSize, pagination.totalCount)}
+      </p>
+    </div>
+
+    <p class="text-sm text-slate-400" data-testid="catalog-enhancement-note">
+      Search, filter, and sorting controls require JavaScript; pagination links work without JavaScript.
+    </p>
+    <noscript>
+      <p class="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200" data-testid="catalog-noscript-note">
+        Enable JavaScript to search, filter, or sort the catalog. Static pagination links remain available below.
+      </p>
+    </noscript>
+  </form>
+</div>
+
+<div>
+  <h2 class="text-2xl font-medium mb-6 text-slate-100" data-testid="catalog-heading" tabindex="-1">Featured Games</h2>
+
+  {pagination.totalCount === 0 ? (
+    <EmptyState text="No games available at the moment." />
+  ) : (
+    <>
+      <div
+        class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
+        data-testid="games-grid"
+        data-page-size={pagination.pageSize}
+        data-total-pages={pagination.totalPages}
+      >
+        {games.map((game) => (
+          <GameCard game={game} />
+        ))}
+      </div>
+      <div
+        class="rounded-xl border border-slate-700 bg-slate-800/60 p-8 text-center text-slate-200"
+        data-testid="filter-empty-state"
+        hidden
+      >
+        No games match the current search or filters.
+      </div>
+      <div
+        class="mt-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-100"
+        data-testid="catalog-invalid-state"
+        role="alert"
+        hidden
+      >
+        One or more requested filters are not available. Clear filters to return to the full catalog.
+      </div>
+      <div
+        class="mt-4 rounded-xl border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-100"
+        data-testid="catalog-load-error"
+        role="alert"
+        hidden
+      >
+        <p>We could not update the catalog. The current page is still available.</p>
+        <button
+          type="button"
+          class="mt-3 rounded-lg border border-red-300/50 px-3 py-2 font-medium text-red-50 transition hover:bg-red-500/20 focus:outline-none focus:ring-2 focus:ring-red-300"
+          data-testid="catalog-retry-button"
+        >
+          Retry catalog update
+        </button>
+      </div>
+
+      {pagination.totalPages > 1 && (
+        <nav
+          class="mt-8 flex flex-wrap items-center justify-center gap-2"
+          aria-label="Game list pagination"
+          data-testid="pagination"
+        >
+          {pagination.hasPreviousPage ? (
+            <a
+              href={baselinePageHref(pagination.page - 1)}
+              class="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 transition hover:border-blue-500 hover:text-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              aria-label="Previous page"
+              data-testid="pagination-prev"
+              data-page-number={pagination.page - 1}
+            >
+              Previous
+            </a>
+          ) : (
+            <span
+              class="rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-sm text-slate-500"
+              aria-disabled="true"
+              data-testid="pagination-prev"
+            >
+              Previous
+            </span>
+          )}
+
+          {pageLinks.map((pageNumber) => {
+            const isCurrent = pageNumber === pagination.page;
+
+            return isCurrent ? (
+              <span
+                class="rounded-lg border border-blue-500 bg-blue-500/15 px-3 py-2 text-sm font-medium text-blue-300"
+                aria-current="page"
+                data-testid={`pagination-page-current-${pageNumber}`}
+              >
+                {pageNumber}
+              </span>
+            ) : (
+              <a
+                href={baselinePageHref(pageNumber)}
+                class="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 transition hover:border-blue-500 hover:text-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                aria-label={`Go to page ${pageNumber}`}
+                data-testid={`pagination-page-${pageNumber}`}
+                data-page-number={pageNumber}
+              >
+                {pageNumber}
+              </a>
+            );
+          })}
+
+          {pagination.hasNextPage ? (
+            <a
+              href={baselinePageHref(pagination.page + 1)}
+              class="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 transition hover:border-blue-500 hover:text-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              aria-label="Next page"
+              data-testid="pagination-next"
+              data-page-number={pagination.page + 1}
+            >
+              Next
+            </a>
+          ) : (
+            <span
+              class="rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-sm text-slate-500"
+              aria-disabled="true"
+              data-testid="pagination-next"
+            >
+              Next
+            </span>
+          )}
+        </nav>
+      )}
+    </>
+  )}
+</div>
+
+<script>
+  import { sortGames, type GameSortOption } from '../lib/game-sort';
+  import { DEFAULT_PAGE_SIZE, normalizePage, paginate } from '../lib/pagination';
+  import { titleMatchesSearch } from '../lib/title-search';
+
+  interface CatalogItem {
+    id: number;
+    title: string;
+    starRating: number | null;
+    categoryId: number | null;
+    publisherId: number | null;
+  }
+
+  interface CatalogState {
+    query: string;
+    categoryIds: number[];
+    publisherId: number | null;
+    sort: GameSortOption;
+    page: number;
+  }
+
+  const searchForm = document.querySelector<HTMLFormElement>('[data-testid="game-search-form"]');
+  const searchInput = document.querySelector<HTMLInputElement>('[data-testid="game-search-input"]');
+  const categoryInputs = Array.from(
+    document.querySelectorAll<HTMLInputElement>('input[name="category"][type="checkbox"]'),
+  );
+  const publisherFilter = document.querySelector<HTMLSelectElement>('[data-testid="publisher-filter"]');
+  const clearFiltersButton = document.querySelector<HTMLButtonElement>('[data-testid="clear-filters-button"]');
+  const gamesGrid = document.querySelector<HTMLElement>('[data-testid="games-grid"]');
+  const emptyState = document.querySelector<HTMLElement>('[data-testid="filter-empty-state"]');
+  const resultsSummary = document.querySelector<HTMLElement>('[data-testid="results-summary"]');
+  const sortSelect = document.querySelector<HTMLSelectElement>('[data-testid="game-sort"]');
+  const paginationNav = document.querySelector<HTMLElement>('[data-testid="pagination"]');
+  const errorState = document.querySelector<HTMLElement>('[data-testid="catalog-load-error"]');
+  const invalidState = document.querySelector<HTMLElement>('[data-testid="catalog-invalid-state"]');
+  const catalogHeading = document.querySelector<HTMLElement>('[data-testid="catalog-heading"]');
+  const retryButton = document.querySelector<HTMLButtonElement>('[data-testid="catalog-retry-button"]');
+  const pageSize = Number(gamesGrid?.dataset.pageSize ?? DEFAULT_PAGE_SIZE) || DEFAULT_PAGE_SIZE;
+  const staticTotalPages = Number(gamesGrid?.dataset.totalPages ?? '1') || 1;
+  const availableCategoryIds = new Set(categoryInputs.map((input) => Number(input.value)));
+  const availablePublisherIds = new Set(
+    Array.from(publisherFilter?.options ?? [])
+      .map((option) => parsePositiveInteger(option.value))
+      .filter((value): value is number => value !== null),
+  );
+  const catalogItemsUrl = '/games/catalog.json';
+  const cardFragmentCache = new Map<number, string>();
+  let catalogItemsPromise: Promise<CatalogItem[]> | null = null;
+  let latestRenderId = 0;
+  let latestState = readStateFromUrl();
+
+  // Captured before any enhancement mutates the DOM so a later popstate can restore this
+  // document's own server-rendered baseline without a network request, even when the
+  // browser's history entry already has the canonical URL and would otherwise be skipped.
+  const initialStaticPage = clampPageToStaticRange(getPageFromPath(window.location.pathname));
+  const initialSnapshot = {
+    cardsHtml: gamesGrid?.innerHTML ?? '',
+    gridHidden: gamesGrid?.hidden ?? false,
+    emptyHidden: emptyState?.hidden ?? true,
+    paginationHtml: paginationNav?.innerHTML ?? '',
+    paginationHidden: paginationNav?.hidden ?? true,
+    summaryText: resultsSummary?.textContent ?? '',
+  };
+
+  function restoreInitialBaseline(): void {
+    // Invalidate any in-flight enhanced render so a late-arriving fetch cannot overwrite the
+    // restored baseline with stale enhanced content.
+    latestRenderId += 1;
+
+    if (gamesGrid) {
+      gamesGrid.innerHTML = initialSnapshot.cardsHtml;
+      gamesGrid.hidden = initialSnapshot.gridHidden;
+    }
+
+    if (emptyState) {
+      emptyState.hidden = initialSnapshot.emptyHidden;
+    }
+
+    if (paginationNav) {
+      paginationNav.innerHTML = initialSnapshot.paginationHtml;
+      paginationNav.hidden = initialSnapshot.paginationHidden;
+    }
+
+    if (resultsSummary) {
+      resultsSummary.textContent = initialSnapshot.summaryText;
+    }
+
+    setErrorVisible(false);
+
+    if (invalidState) {
+      invalidState.hidden = true;
+    }
+
+    latestState = {
+      query: '',
+      categoryIds: [],
+      publisherId: null,
+      sort: 'title-asc',
+      page: initialStaticPage,
+    };
+    hydrateControls(latestState);
+  }
+
+  function parsePositiveInteger(value: string | null): number | null {
+    const numericValue = Number(value);
+    return Number.isInteger(numericValue) && numericValue > 0 ? numericValue : null;
+  }
+
+  function getPageFromPath(pathname: string): number {
+    const match = pathname.match(/^\/games\/page\/(\d+)\/?$/);
+    return match ? normalizePage(match[1]) : 1;
+  }
+
+  function clampPageToStaticRange(page: number): number {
+    return Math.min(normalizePage(page), staticTotalPages);
+  }
+
+  function getSortOption(value: string | null | undefined): GameSortOption {
+    return value === 'title-desc' || value === 'rating-desc' ? value : 'title-asc';
+  }
+
+  function readStateFromUrl(): CatalogState {
+    const params = new URLSearchParams(window.location.search);
+    const publisherId = parsePositiveInteger(params.get('publisher'));
+    const categoryIds = params
+      .getAll('category')
+      .map((value) => parsePositiveInteger(value))
+      .filter((value): value is number => value !== null);
+
+    return {
+      query: params.get('query') ?? '',
+      categoryIds: [...new Set(categoryIds)],
+      publisherId,
+      sort: getSortOption(params.get('sort')),
+      page: normalizePage(params.get('page') ?? getPageFromPath(window.location.pathname)),
+    };
+  }
+
+  function readStateFromControls(page: number): CatalogState {
+    const publisherId = parsePositiveInteger(publisherFilter?.value ?? null);
+    const unknownCategoryIds = latestState.categoryIds.filter((categoryId) => !availableCategoryIds.has(categoryId));
+    const unknownPublisherId =
+      latestState.publisherId !== null && !availablePublisherIds.has(latestState.publisherId)
+        ? latestState.publisherId
+        : null;
+
+    return {
+      query: searchInput?.value ?? '',
+      categoryIds: [
+        ...unknownCategoryIds,
+        ...categoryInputs.filter((input) => input.checked).map((input) => Number(input.value)),
+      ],
+      publisherId: publisherId ?? unknownPublisherId,
+      sort: getSortOption(sortSelect?.value),
+      page,
+    };
+  }
+
+  function isDefaultState(state: CatalogState): boolean {
+    return state.query.trim() === '' &&
+      state.categoryIds.length === 0 &&
+      state.publisherId === null &&
+      state.sort === 'title-asc';
+  }
+
+  function buildStateUrl(state: CatalogState): string {
+    const path = state.page <= 1 ? '/' : `/games/page/${state.page}/`;
+    const params = new URLSearchParams();
+    params.set('page', String(state.page));
+
+    if (state.query !== '') {
+      params.set('query', state.query);
+    }
+
+    state.categoryIds.forEach((categoryId) => params.append('category', String(categoryId)));
+
+    if (state.publisherId !== null) {
+      params.set('publisher', String(state.publisherId));
+    }
+
+    if (state.sort !== 'title-asc') {
+      params.set('sort', state.sort);
+    }
+
+    return `${path}?${params.toString()}`;
+  }
+
+  function buildBaselinePageUrl(page: number): string {
+    return page <= 1 ? '/' : `/games/page/${page}/`;
+  }
+
+  function hasUnavailableFilters(state: CatalogState): boolean {
+    return state.categoryIds.some((categoryId) => !availableCategoryIds.has(categoryId)) ||
+      (state.publisherId !== null && !availablePublisherIds.has(state.publisherId));
+  }
+
+  function isPositiveInteger(value: unknown): value is number {
+    return Number.isInteger(value) && Number(value) > 0;
+  }
+
+  function hydrateControls(state: CatalogState): void {
+    if (searchInput) {
+      searchInput.value = state.query;
+    }
+
+    categoryInputs.forEach((input) => {
+      input.checked = state.categoryIds.includes(Number(input.value));
+    });
+
+    if (publisherFilter) {
+      publisherFilter.value = state.publisherId === null ? '' : String(state.publisherId);
+    }
+
+    if (sortSelect) {
+      sortSelect.value = state.sort;
+    }
+
+    if (invalidState) {
+      invalidState.hidden = !hasUnavailableFilters(state);
+    }
+  }
+
+  function isCatalogItem(value: unknown): value is CatalogItem {
+    if (typeof value !== 'object' || value === null) {
+      return false;
+    }
+
+    const item = value as Record<string, unknown>;
+    return isPositiveInteger(item.id) &&
+      typeof item.title === 'string' &&
+      (Number.isFinite(item.starRating) || item.starRating === null) &&
+      (isPositiveInteger(item.categoryId) || item.categoryId === null) &&
+      (isPositiveInteger(item.publisherId) || item.publisherId === null);
+  }
+
+  async function getCatalogItems(): Promise<CatalogItem[]> {
+    if (!catalogItemsPromise) {
+      catalogItemsPromise = fetch(catalogItemsUrl, { headers: { Accept: 'application/json' } }).then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`Catalog data request failed with HTTP ${response.status}.`);
+        }
+
+        const payload = await response.json() as { games?: unknown };
+        if (!Array.isArray(payload.games) || !payload.games.every(isCatalogItem)) {
+          throw new Error('Catalog data response was missing valid games.');
+        }
+
+        return payload.games;
+      });
+    }
+
+    return catalogItemsPromise;
+  }
+
+  async function getCardFragment(id: number): Promise<string> {
+    const cachedFragment = cardFragmentCache.get(id);
+    if (cachedFragment) {
+      return cachedFragment;
+    }
+
+    const response = await fetch(`/games/cards/${id}/`, { headers: { Accept: 'text/html' } });
+    if (!response.ok) {
+      throw new Error(`Catalog card fragment request failed with HTTP ${response.status}.`);
+    }
+
+    const fragment = await response.text();
+    cardFragmentCache.set(id, fragment);
+    return fragment;
+  }
+
+  function fragmentToElement(fragment: string): Element {
+    const template = document.createElement('template');
+    template.innerHTML = fragment.trim();
+    const card = template.content.firstElementChild;
+
+    if (!card) {
+      throw new Error('Catalog card fragment was empty.');
+    }
+
+    return card;
+  }
+
+  function filterAndSortItems(items: CatalogItem[], state: CatalogState): CatalogItem[] {
+    const filteredItems = items.filter((item) => {
+      const matchesCategory = state.categoryIds.length === 0 ||
+        (item.categoryId !== null && state.categoryIds.includes(item.categoryId));
+      const matchesPublisher = state.publisherId === null ||
+        (item.publisherId !== null && item.publisherId === state.publisherId);
+      return matchesCategory && matchesPublisher && titleMatchesSearch(item.title, state.query);
+    });
+
+    return sortGames(filteredItems, state.sort);
+  }
+
+  function setErrorVisible(isVisible: boolean): void {
+    if (errorState) {
+      errorState.hidden = !isVisible;
+    }
+  }
+
+  function getResultsSummaryText(page: number, size: number, totalCount: number): string {
+    if (totalCount === 0) {
+      return '0 games shown';
+    }
+
+    const start = (page - 1) * size + 1;
+    const end = Math.min(page * size, totalCount);
+    return `Showing ${start}-${end} of ${totalCount} ${totalCount === 1 ? 'game' : 'games'}`;
+  }
+
+  function createPageHref(state: CatalogState, page: number): string {
+    return buildStateUrl({ ...state, page });
+  }
+
+  function addPaginationLink(label: string, testId: string, page: number, state: CatalogState): HTMLAnchorElement {
+    const link = document.createElement('a');
+    link.href = createPageHref(state, page);
+    link.className = 'rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 transition hover:border-blue-500 hover:text-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-500';
+    link.setAttribute('data-testid', testId);
+    link.setAttribute('data-page-number', String(page));
+    link.textContent = label;
+    return link;
+  }
+
+  function addDisabledPaginationControl(label: string, testId: string): HTMLSpanElement {
+    const disabledControl = document.createElement('span');
+    disabledControl.className = 'rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-sm text-slate-500';
+    disabledControl.setAttribute('aria-disabled', 'true');
+    disabledControl.setAttribute('data-testid', testId);
+    disabledControl.textContent = label;
+    return disabledControl;
+  }
+
+  function updatePagination(state: CatalogState, totalCount: number, totalPages: number): void {
+    if (!paginationNav) {
+      return;
+    }
+
+    paginationNav.hidden = totalCount === 0 || totalPages <= 1;
+    paginationNav.replaceChildren();
+
+    if (paginationNav.hidden) {
+      return;
+    }
+
+    if (state.page > 1) {
+      const prevLink = addPaginationLink('Previous', 'pagination-prev', state.page - 1, state);
+      prevLink.setAttribute('aria-label', 'Previous page');
+      paginationNav.append(prevLink);
+    } else {
+      paginationNav.append(addDisabledPaginationControl('Previous', 'pagination-prev'));
+    }
+
+    for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
+      if (pageNumber === state.page) {
+        const currentPage = document.createElement('span');
+        currentPage.className = 'rounded-lg border border-blue-500 bg-blue-500/15 px-3 py-2 text-sm font-medium text-blue-300';
+        currentPage.setAttribute('aria-current', 'page');
+        currentPage.setAttribute('data-testid', `pagination-page-current-${pageNumber}`);
+        currentPage.textContent = String(pageNumber);
+        paginationNav.append(currentPage);
+      } else {
+        const pageLink = addPaginationLink(String(pageNumber), `pagination-page-${pageNumber}`, pageNumber, state);
+        pageLink.setAttribute('aria-label', `Go to page ${pageNumber}`);
+        paginationNav.append(pageLink);
+      }
+    }
+
+    if (state.page < totalPages) {
+      const nextLink = addPaginationLink('Next', 'pagination-next', state.page + 1, state);
+      nextLink.setAttribute('aria-label', 'Next page');
+      paginationNav.append(nextLink);
+    } else {
+      paginationNav.append(addDisabledPaginationControl('Next', 'pagination-next'));
+    }
+  }
+
+  async function renderEnhancedCatalog(
+    state: CatalogState,
+    shouldPushState: boolean,
+    shouldFocusHeading = false,
+  ): Promise<void> {
+    const renderId = latestRenderId + 1;
+    latestRenderId = renderId;
+    latestState = state;
+    setErrorVisible(false);
+
+    try {
+      const catalogItems = await getCatalogItems();
+      if (renderId !== latestRenderId) {
+        return;
+      }
+
+      const filteredItems = filterAndSortItems(catalogItems, state);
+      const pageResult = paginate(filteredItems, state.page, pageSize);
+      const clampedState = { ...state, page: pageResult.page };
+      const cardFragments = await Promise.all(pageResult.items.map((item) => getCardFragment(item.id)));
+
+      if (renderId !== latestRenderId) {
+        return;
+      }
+
+      if (gamesGrid) {
+        gamesGrid.replaceChildren(...cardFragments.map(fragmentToElement));
+        gamesGrid.hidden = pageResult.totalCount === 0;
+      }
+
+      if (emptyState) {
+        emptyState.hidden = pageResult.totalCount !== 0;
+      }
+
+      if (resultsSummary) {
+        resultsSummary.textContent = getResultsSummaryText(pageResult.page, pageResult.pageSize, pageResult.totalCount);
+      }
+
+      updatePagination(clampedState, pageResult.totalCount, pageResult.totalPages);
+      hydrateControls(clampedState);
+      const nextUrl = buildStateUrl(clampedState);
+      const currentUrl = `${window.location.pathname}${window.location.search}`;
+
+      if (nextUrl !== currentUrl) {
+        if (shouldPushState) {
+          window.history.pushState(null, '', nextUrl);
+        } else {
+          window.history.replaceState(null, '', nextUrl);
+        }
+      }
+
+      latestState = clampedState;
+      if (shouldFocusHeading) {
+        catalogHeading?.focus();
+      }
+    } catch (error) {
+      if (renderId !== latestRenderId) {
+        return;
+      }
+
+      setErrorVisible(true);
+      if (resultsSummary) {
+        resultsSummary.textContent = 'Could not update catalog. Try again.';
+      }
+      console.error(error);
+    }
+  }
+
+  function renderFromControls(page: number, shouldPushState: boolean): void {
+    void renderEnhancedCatalog(readStateFromControls(page), shouldPushState);
+  }
+
+  hydrateControls(latestState);
+
+  if (isDefaultState(latestState)) {
+    const baselineUrl = buildBaselinePageUrl(clampPageToStaticRange(latestState.page));
+    if (`${window.location.pathname}${window.location.search}` !== baselineUrl) {
+      window.location.replace(baselineUrl);
+    }
+  } else if (!isDefaultState(latestState)) {
+    void renderEnhancedCatalog(latestState, false);
+  }
+
+  categoryInputs.forEach((input) => input.addEventListener('change', () => renderFromControls(1, true)));
+  searchInput?.addEventListener('input', () => renderFromControls(1, true));
+  sortSelect?.addEventListener('change', () => renderFromControls(1, true));
+  publisherFilter?.addEventListener('change', () => renderFromControls(1, true));
+
+  searchForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    renderFromControls(1, true);
+    searchInput?.focus();
+  });
+
+  clearFiltersButton?.addEventListener('click', () => {
+    categoryInputs.forEach((input) => {
+      input.checked = false;
+    });
+
+    if (publisherFilter) {
+      publisherFilter.value = '';
+    }
+
+    if (searchInput) {
+      searchInput.value = '';
+    }
+
+    if (sortSelect) {
+      sortSelect.value = 'title-asc';
+    }
+
+    window.location.assign('/');
+  });
+
+  paginationNav?.addEventListener('click', (event) => {
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
+    }
+
+    const target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+
+    const pageLink = target.closest<HTMLElement>('[data-page-number]');
+    if (!pageLink) {
+      return;
+    }
+
+    const nextPage = normalizePage(pageLink.getAttribute('data-page-number'));
+    const state = readStateFromControls(nextPage);
+
+    if (isDefaultState(state)) {
+      return;
+    }
+
+    event.preventDefault();
+    void renderEnhancedCatalog(state, true, true);
+  });
+
+  retryButton?.addEventListener('click', () => {
+    catalogItemsPromise = null;
+    void renderEnhancedCatalog(latestState, false);
+  });
+
+  window.addEventListener('popstate', () => {
+    const state = readStateFromUrl();
+
+    if (isDefaultState(state)) {
+      const clampedPage = clampPageToStaticRange(state.page);
+      const baselineUrl = buildBaselinePageUrl(clampedPage);
+      const currentUrl = `${window.location.pathname}${window.location.search}`;
+
+      if (currentUrl !== baselineUrl) {
+        // Invalidate any pending enhanced render before leaving the document so a
+        // late-arriving fetch cannot resurrect the enhanced view after navigation.
+        latestRenderId += 1;
+        window.location.replace(baselineUrl);
+        return;
+      }
+
+      if (clampedPage === initialStaticPage) {
+        // The history entry's URL already matches this document's own server-rendered
+        // baseline (e.g. the literal entry created by the initial page load), so restore
+        // it directly from the captured snapshot instead of silently doing nothing.
+        restoreInitialBaseline();
+        return;
+      }
+
+      // The canonical URL matches a *different* static page than the one baked into this
+      // document; a real navigation is required since we don't hold that page's markup.
+      latestRenderId += 1;
+      window.location.replace(baselineUrl);
+      return;
+    }
+
+    hydrateControls(state);
+    void renderEnhancedCatalog(state, false);
+  });
+</script>
