@@ -2,6 +2,7 @@ import { asc, avg, count, eq, inArray, and } from 'drizzle-orm';
 import type { Database } from './db';
 import { games, categories, publishers } from '../../db/schema';
 import type { Game, Publisher } from '../types/game';
+export { sortGames, type GameSortOption } from './game-sort';
 
 /**
  * Filters applied to the home catalog before rendering the visible game list.

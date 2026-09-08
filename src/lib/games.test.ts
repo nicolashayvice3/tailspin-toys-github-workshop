@@ -13,6 +13,7 @@ import {
     getGamesByPublisherId,
     getPublisherById,
 } from './games';
+import { sortGames, type GameSortOption } from './game-sort';
 
 async function seedGames(db: Database, count: number): Promise<void> {
     const [category] = await db
@@ -103,6 +104,43 @@ describe('games data-access helpers', () => {
 
     beforeEach(async () => {
         db = await createTestDatabase();
+    });
+
+    describe('sortGames', () => {
+        const gameList = [
+            { id: 4, title: 'game 2', starRating: null },
+            { id: 2, title: 'Game 10', starRating: 0 },
+            { id: 3, title: 'game 1', starRating: 4.5 },
+            { id: 1, title: 'GAME 1', starRating: 4.5 },
+            { id: 5, title: 'Unrated', starRating: null },
+        ];
+
+        it.each<GameSortOption>(['title-asc', 'title-desc', 'rating-desc'])('supports %s ordering', (sort) => {
+            const originalIds = gameList.map((game) => game.id);
+            const sorted = sortGames(gameList, sort);
+
+            expect(sorted).not.toBe(gameList);
+            expect(gameList.map((game) => game.id)).toEqual(originalIds);
+        });
+
+        it('orders titles case-insensitively with numeric comparison and ID tie-breaking', () => {
+            expect(sortGames(gameList, 'title-asc').map((game) => game.id)).toEqual([1, 3, 4, 2, 5]);
+            expect(sortGames(gameList, 'title-desc').map((game) => game.id)).toEqual([5, 2, 4, 1, 3]);
+        });
+
+        it('orders ratings highest first, keeps zero rated, and places null last', () => {
+            expect(sortGames(gameList, 'rating-desc').map((game) => game.id)).toEqual([1, 3, 2, 4, 5]);
+        });
+
+        it.each([
+            { games: [] },
+            { games: [{ id: 1, title: 'Only game', starRating: null }] },
+        ])(
+            'handles a collection with %s',
+            ({ games }) => {
+                expect(sortGames(games, 'rating-desc')).toHaveLength(games.length);
+            },
+        );
     });
 
     // The base catalog query should stay stable even with no explicit filters applied.

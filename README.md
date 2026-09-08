@@ -44,7 +44,7 @@ npx playwright install chromium   # only needed to run the E2E tests
 npm run dev
 ```
 
-`predev` migrates and seeds the local database first. Then navigate to the [website](http://localhost:4321) to see the site!
+`predev` migrates and seeds the local database first. Then navigate to the [website](http://localhost:4321) to see the site! The home page includes browser-side sorting for title (A–Z / Z–A) and star rating. Rated games appear before unrated games for rating sort; zero is a valid rating, and ties use title then ID order. Sorting composes with the title, category, and publisher filters without changing the catalog summary.
 
 To preview a production build instead:
 
