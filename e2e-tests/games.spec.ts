@@ -65,15 +65,18 @@ test.describe('Game Listing and Navigation', () => {
     });
 
     await test.step('Clear the query while preserving both selected filter groups', async () => {
-      await searchInput.fill('code');
-      await expect(visibleTitles).toHaveCount(1);
-      await expect(visibleTitles).toHaveText('Code Puzzle Chronicles');
+      await searchInput.fill('');
+      await expect(visibleTitles).toHaveCount(2);
+      await expect(visibleTitles).toHaveText(['Code Puzzle Chronicles', 'DevOps Dominion']);
       await expect(page.getByRole('checkbox', { name: 'Puzzle' })).toBeChecked();
       await expect(page.getByRole('checkbox', { name: 'Strategy' })).toBeChecked();
       await expect(page.getByLabel('Filter by publisher')).toHaveValue(/./);
     });
 
     await test.step('Clear all controls from a nonempty query and restore the exact catalog', async () => {
+      await searchInput.fill('code');
+      await expect(visibleTitles).toHaveCount(1);
+      await expect(visibleTitles).toHaveText('Code Puzzle Chronicles');
       await page.getByTestId('clear-filters-button').click();
       await expect(searchInput).toHaveValue('');
       await expect(page.getByTestId('filter-empty-state')).toBeHidden();
