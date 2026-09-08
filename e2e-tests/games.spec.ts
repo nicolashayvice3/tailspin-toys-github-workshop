@@ -155,16 +155,82 @@ test.describe('Game Listing and Navigation', () => {
 
   test('should preserve forward history when returning from enhanced state to the default baseline', async ({ page }) => {
     await page.goto('/');
+    await expect.poll(() => getVisibleGameIds(page)).toEqual([
+      '14', '7', '21', '5', '13', '10', '12', '1', '15',
+    ]);
+
     await page.getByTestId('game-sort').selectOption('title-desc');
     await expect(page).toHaveURL(/\/\?page=1&sort=title-desc$/);
+    await expect.poll(() => getVisibleGameIds(page)).toEqual([
+      '9', '18', '20', '8', '3', '17', '4', '19', '16',
+    ]);
 
     await page.goBack();
     await expect(page).toHaveURL(/\/$/);
+    await expect.poll(() => getVisibleGameIds(page)).toEqual([
+      '14', '7', '21', '5', '13', '10', '12', '1', '15',
+    ]);
     await expect(page.getByTestId('results-summary')).toHaveText('Showing 1-9 of 21 games');
+    await expect(page.getByTestId('game-sort')).toHaveValue('title-asc');
+    await expect(page.getByTestId('pagination-page-current-1')).toBeVisible();
 
     await page.goForward();
     await expect(page).toHaveURL(/\/\?page=1&sort=title-desc$/);
+    await expect.poll(() => getVisibleGameIds(page)).toEqual([
+      '9', '18', '20', '8', '3', '17', '4', '19', '16',
+    ]);
+    await expect(page.getByTestId('game-sort')).toHaveValue('title-desc');
     await expect(page.getByTestId('pagination-page-current-1')).toBeVisible();
+  });
+
+  test('should not let a delayed enhanced render overwrite a baseline restored via Back navigation', async ({ page }) => {
+    await page.goto('/');
+    await expect.poll(() => getVisibleGameIds(page)).toEqual([
+      '14', '7', '21', '5', '13', '10', '12', '1', '15',
+    ]);
+
+    // Complete a normal enhanced navigation first so the URL, history entry, and catalog cache
+    // are all in place before we simulate a slow *second* render.
+    await page.getByTestId('game-sort').selectOption('title-desc');
+    await expect(page).toHaveURL(/\/\?page=1&sort=title-desc$/);
+    await expect.poll(() => getVisibleGameIds(page)).toEqual([
+      '9', '18', '20', '8', '3', '17', '4', '19', '16',
+    ]);
+
+    // Delay the card-fragment requests for the *next* render only. The catalog metadata is
+    // already cached from the sort-desc render above, so this reproduces a render that has
+    // determined its page contents but is still awaiting the fragment HTML needed to paint it.
+    let resolveDelayedFragments: (() => void) | undefined;
+    const delayedFragments = new Promise<void>((resolve) => {
+      resolveDelayedFragments = resolve;
+    });
+
+    await page.route('**/games/cards/*/', async (route) => {
+      await delayedFragments;
+      await route.fallback();
+    });
+
+    await page.getByTestId('game-sort').selectOption('rating-desc');
+
+    // Before the slow rating-desc render can finish, navigate back to the default baseline.
+    // This must invalidate the in-flight render and restore the original static state exactly.
+    await page.goBack();
+    await expect(page).toHaveURL(/\/$/);
+    await expect.poll(() => getVisibleGameIds(page)).toEqual([
+      '14', '7', '21', '5', '13', '10', '12', '1', '15',
+    ]);
+    await expect(page.getByTestId('results-summary')).toHaveText('Showing 1-9 of 21 games');
+    await expect(page.getByTestId('game-sort')).toHaveValue('title-asc');
+
+    // Let the delayed fragment requests resolve now; their completion belongs to a render that
+    // was invalidated by the restored baseline and must not be allowed to overwrite it.
+    resolveDelayedFragments?.();
+    await page.waitForTimeout(200);
+    await expect.poll(() => getVisibleGameIds(page)).toEqual([
+      '14', '7', '21', '5', '13', '10', '12', '1', '15',
+    ]);
+    await expect(page.getByTestId('results-summary')).toHaveText('Showing 1-9 of 21 games');
+    await expect(page.getByTestId('game-sort')).toHaveValue('title-asc');
   });
 
   test('should keep modified pagination clicks as normal link interactions and focus heading after enhanced page changes', async ({ page }) => {

@@ -14,7 +14,7 @@ import {
     getGamesByPublisherId,
     getPublisherById,
 } from './games';
-import { sortGames, type GameSortOption } from './game-sort';
+import { sortGames, naturalTitleSortKey, type GameSortOption } from './game-sort';
 
 async function seedGames(db: Database, count: number): Promise<void> {
     const [category] = await db
@@ -267,6 +267,70 @@ describe('games data-access helpers', () => {
                 'Zed',
                 'zed',
             ]);
+        });
+
+        it('keeps SQL and browser title ordering aligned for supplementary-plane and non-Latin BMP characters', async () => {
+            const [category] = await db
+                .insert(categories)
+                .values({ name: 'Strategy', description: 'cat' })
+                .returning({ id: categories.id });
+            const [publisher] = await db
+                .insert(publishers)
+                .values({ name: 'Pub One', description: 'pub' })
+                .returning({ id: publishers.id });
+
+            // "😀" (U+1F600) is a supplementary-plane character represented in JavaScript as a
+            // UTF-16 surrogate pair. Comparing raw title strings would make UTF-16 code-unit
+            // order (used by the browser) diverge from UTF-8 byte order (SQLite's default
+            // BINARY collation) for exactly this kind of character. "Ж" (U+0416) is a non-Latin
+            // Basic Multilingual Plane character used as a control to prove ordinary BMP text
+            // still sorts consistently between the two engines.
+            await db.insert(games).values([
+                {
+                    title: '😀 Emoji Game',
+                    description: 'emoji',
+                    starRating: null,
+                    categoryId: category.id,
+                    publisherId: publisher.id,
+                },
+                {
+                    title: 'Ж Cyrillic Game',
+                    description: 'cyrillic',
+                    starRating: null,
+                    categoryId: category.id,
+                    publisherId: publisher.id,
+                },
+                {
+                    title: 'Zebra Game',
+                    description: 'latin',
+                    starRating: null,
+                    categoryId: category.id,
+                    publisherId: publisher.id,
+                },
+                {
+                    title: 'ascii game',
+                    description: 'latin lower',
+                    starRating: null,
+                    categoryId: category.id,
+                    publisherId: publisher.id,
+                },
+            ]);
+
+            const sqlOrdered = await getAllGames(db);
+            const browserOrdered = sortGames(sqlOrdered, 'title-asc');
+
+            expect(sqlOrdered.map((game) => game.id)).toEqual(browserOrdered.map((game) => game.id));
+            expect(sqlOrdered.map((game) => game.title)).toEqual([
+                'ascii game',
+                'Zebra Game',
+                'Ж Cyrillic Game',
+                '😀 Emoji Game',
+            ]);
+
+            for (const game of sqlOrdered) {
+                const key = naturalTitleSortKey(game.title);
+                expect([...key].every((character) => character.codePointAt(0) !== undefined && character.codePointAt(0)! <= 0x7f)).toBe(true);
+            }
         });
     // Related descriptions should be normalized consistently even when the underlying text is blank.
     it('normalizes missing and whitespace-only related descriptions to null', async () => {

@@ -362,6 +362,58 @@ const pageLinks = Array.from({ length: pagination.totalPages }, (_, index) => in
   let latestRenderId = 0;
   let latestState = readStateFromUrl();
 
+  // Captured before any enhancement mutates the DOM so a later popstate can restore this
+  // document's own server-rendered baseline without a network request, even when the
+  // browser's history entry already has the canonical URL and would otherwise be skipped.
+  const initialStaticPage = clampPageToStaticRange(getPageFromPath(window.location.pathname));
+  const initialSnapshot = {
+    cardsHtml: gamesGrid?.innerHTML ?? '',
+    gridHidden: gamesGrid?.hidden ?? false,
+    emptyHidden: emptyState?.hidden ?? true,
+    paginationHtml: paginationNav?.innerHTML ?? '',
+    paginationHidden: paginationNav?.hidden ?? true,
+    summaryText: resultsSummary?.textContent ?? '',
+  };
+
+  function restoreInitialBaseline(): void {
+    // Invalidate any in-flight enhanced render so a late-arriving fetch cannot overwrite the
+    // restored baseline with stale enhanced content.
+    latestRenderId += 1;
+
+    if (gamesGrid) {
+      gamesGrid.innerHTML = initialSnapshot.cardsHtml;
+      gamesGrid.hidden = initialSnapshot.gridHidden;
+    }
+
+    if (emptyState) {
+      emptyState.hidden = initialSnapshot.emptyHidden;
+    }
+
+    if (paginationNav) {
+      paginationNav.innerHTML = initialSnapshot.paginationHtml;
+      paginationNav.hidden = initialSnapshot.paginationHidden;
+    }
+
+    if (resultsSummary) {
+      resultsSummary.textContent = initialSnapshot.summaryText;
+    }
+
+    setErrorVisible(false);
+
+    if (invalidState) {
+      invalidState.hidden = true;
+    }
+
+    latestState = {
+      query: '',
+      categoryIds: [],
+      publisherId: null,
+      sort: 'title-asc',
+      page: initialStaticPage,
+    };
+    hydrateControls(latestState);
+  }
+
   function parsePositiveInteger(value: string | null): number | null {
     const numericValue = Number(value);
     return Number.isInteger(numericValue) && numericValue > 0 ? numericValue : null;
@@ -790,16 +842,36 @@ const pageLinks = Array.from({ length: pagination.totalPages }, (_, index) => in
 
   window.addEventListener('popstate', () => {
     const state = readStateFromUrl();
-    hydrateControls(state);
 
     if (isDefaultState(state)) {
-      const baselineUrl = buildBaselinePageUrl(clampPageToStaticRange(state.page));
-      if (`${window.location.pathname}${window.location.search}` !== baselineUrl) {
+      const clampedPage = clampPageToStaticRange(state.page);
+      const baselineUrl = buildBaselinePageUrl(clampedPage);
+      const currentUrl = `${window.location.pathname}${window.location.search}`;
+
+      if (currentUrl !== baselineUrl) {
+        // Invalidate any pending enhanced render before leaving the document so a
+        // late-arriving fetch cannot resurrect the enhanced view after navigation.
+        latestRenderId += 1;
         window.location.replace(baselineUrl);
+        return;
       }
+
+      if (clampedPage === initialStaticPage) {
+        // The history entry's URL already matches this document's own server-rendered
+        // baseline (e.g. the literal entry created by the initial page load), so restore
+        // it directly from the captured snapshot instead of silently doing nothing.
+        restoreInitialBaseline();
+        return;
+      }
+
+      // The canonical URL matches a *different* static page than the one baked into this
+      // document; a real navigation is required since we don't hold that page's markup.
+      latestRenderId += 1;
+      window.location.replace(baselineUrl);
       return;
     }
 
+    hydrateControls(state);
     void renderEnhancedCatalog(state, false);
   });
 </script>
