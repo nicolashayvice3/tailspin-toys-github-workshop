@@ -5,7 +5,10 @@ import type { Database } from './db';
 import {
     getAllGames,
     getAllGameIds,
+    getAllPublisherIds,
     getGameById,
+    getGamesByPublisherId,
+    getPublisherById,
 } from './games';
 
 async function seedGames(db: Database, count: number): Promise<void> {
@@ -93,5 +96,137 @@ describe('games data-access helpers', () => {
     it('returns null for a non-existent game', async () => {
         await seedGames(db, 2);
         expect(await getGameById(db, 99999)).toBeNull();
+    });
+
+    it('orders publisher IDs by name independent of insertion order, including an empty publisher', async () => {
+        const [category] = await db
+            .insert(categories)
+            .values({ name: 'Strategy', description: 'cat' })
+            .returning({ id: categories.id });
+
+        // Insert publishers out of alphabetical order to prove getAllPublisherIds sorts by
+        // name rather than by id/insertion order.
+        const [zenith] = await db
+            .insert(publishers)
+            .values({ name: 'Zenith Games', description: 'zenith pub' })
+            .returning({ id: publishers.id });
+        const [alpha] = await db
+            .insert(publishers)
+            .values({ name: 'Alpha Studio', description: 'alpha pub' })
+            .returning({ id: publishers.id });
+        const [charlie] = await db
+            .insert(publishers)
+            .values({ name: 'Charlie Games', description: '   ' })
+            .returning({ id: publishers.id });
+
+        // Insert each publisher's games in reverse-alphabetical order to prove per-publisher
+        // ordering is applied independently of insertion order.
+        await db.insert(games).values({
+            title: 'Zeta Two',
+            description: 'Zenith game two',
+            starRating: 4.0,
+            categoryId: category.id,
+            publisherId: zenith.id,
+        });
+        await db.insert(games).values({
+            title: 'Zeta One',
+            description: 'Zenith game one',
+            starRating: 4.1,
+            categoryId: category.id,
+            publisherId: zenith.id,
+        });
+        await db.insert(games).values({
+            title: 'Alpha Two',
+            description: 'Alpha game two',
+            starRating: 3.9,
+            categoryId: category.id,
+            publisherId: alpha.id,
+        });
+        await db.insert(games).values({
+            title: 'Alpha One',
+            description: 'Alpha game one',
+            starRating: 4.2,
+            categoryId: category.id,
+            publisherId: alpha.id,
+        });
+
+        const publisherIds = await getAllPublisherIds(db);
+        expect(publisherIds).toEqual([alpha.id, charlie.id, zenith.id]);
+    });
+
+    it('returns only a publisher\'s own games, ordered by title', async () => {
+        const [category] = await db
+            .insert(categories)
+            .values({ name: 'Strategy', description: 'cat' })
+            .returning({ id: categories.id });
+        const [alpha] = await db
+            .insert(publishers)
+            .values({ name: 'Alpha Studio', description: 'alpha pub' })
+            .returning({ id: publishers.id });
+        const [zenith] = await db
+            .insert(publishers)
+            .values({ name: 'Zenith Games', description: 'zenith pub' })
+            .returning({ id: publishers.id });
+
+        await db.insert(games).values({
+            title: 'Alpha Two',
+            description: 'Alpha game two',
+            starRating: 3.9,
+            categoryId: category.id,
+            publisherId: alpha.id,
+        });
+        await db.insert(games).values({
+            title: 'Alpha One',
+            description: 'Alpha game one',
+            starRating: 4.2,
+            categoryId: category.id,
+            publisherId: alpha.id,
+        });
+        await db.insert(games).values({
+            title: 'Zeta Two',
+            description: 'Zenith game two',
+            starRating: 4.0,
+            categoryId: category.id,
+            publisherId: zenith.id,
+        });
+        await db.insert(games).values({
+            title: 'Zeta One',
+            description: 'Zenith game one',
+            starRating: 4.1,
+            categoryId: category.id,
+            publisherId: zenith.id,
+        });
+
+        const alphaGames = await getGamesByPublisherId(db, alpha.id);
+        expect(alphaGames.map((game) => game.title)).toEqual(['Alpha One', 'Alpha Two']);
+        expect(alphaGames.every((game) => game.publisher?.id === alpha.id)).toBe(true);
+
+        const zenithGames = await getGamesByPublisherId(db, zenith.id);
+        expect(zenithGames.map((game) => game.title)).toEqual(['Zeta One', 'Zeta Two']);
+        expect(zenithGames.every((game) => game.publisher?.id === zenith.id)).toBe(true);
+    });
+
+    it('returns a publisher record with normalized description for a publisher with no games', async () => {
+        const [publisher] = await db
+            .insert(publishers)
+            .values({ name: 'Quiet Studio', description: '   ' })
+            .returning({ id: publishers.id });
+
+        expect(await getPublisherById(db, publisher.id)).toEqual({
+            id: publisher.id,
+            name: 'Quiet Studio',
+            description: null,
+        });
+        expect(await getGamesByPublisherId(db, publisher.id)).toEqual([]);
+    });
+
+    it('returns null for a non-existent publisher', async () => {
+        await seedGames(db, 2);
+        expect(await getPublisherById(db, 99999)).toBeNull();
+    });
+
+    it('returns an empty list of games for a non-existent publisher', async () => {
+        await seedGames(db, 2);
+        expect(await getGamesByPublisherId(db, 99999)).toEqual([]);
     });
 });
